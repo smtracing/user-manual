@@ -49,7 +49,7 @@ body{
 /* ================= HERO SLIDER ================= */
 .hero-slider{
   margin-top:64px;
-  height:480px;
+  height:480px;                 /* DESKTOP */
   position:relative;
   overflow:hidden;
   background:#000;
@@ -293,13 +293,26 @@ body{
   padding-left:60px;
 }
 
-/* ================= MOBILE RESPONSIVE ================= */
+/* ================= MOBILE FIX (INI KUNCI) ================= */
 @media (max-width: 900px){
 
+  /* HERO SLIDER FIX */
   .hero-slider{
     height:auto;
   }
 
+  .hero-slider .slides{
+    height:auto;
+  }
+
+  .hero-slider .slide{
+    aspect-ratio:16/9;     /* WAJIB */
+    min-height:200px;     /* cegah slide pertama hilang */
+    height:auto;
+    background-size:cover;
+  }
+
+  /* ABOUT */
   .about{
     padding:60px 20px;
   }
@@ -310,6 +323,7 @@ body{
     gap:30px;
   }
 
+  /* PRODUCTS */
   .products{
     padding:60px 20px;
   }
@@ -318,6 +332,7 @@ body{
     min-width:260px;
   }
 
+  /* INFO TERAKHIR */
   .brand-last{
     padding:60px 20px;
   }
