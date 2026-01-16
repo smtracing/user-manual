@@ -152,14 +152,15 @@ body{
 /* ============== PRODUK UNGGULAN ================== */
 /* ================================================= */
 
-/* ===== DEFAULT: HP PORTRAIT (2 PRODUK + SLIDER) ===== */
+/* ===== DEFAULT = NON-DESKTOP (HP) ===== */
+/* BALIK KE TAMPILAN AWAL YANG AMAN */
 .products{
   padding:70px 24px;
 }
 
 .products h2{
-  font-size:26px;
-  margin-bottom:32px;
+  font-size:22px;
+  margin-bottom:24px;
 }
 
 .product-wrapper{
@@ -172,27 +173,27 @@ body{
   background:none;
   border:none;
   color:#888;
-  font-size:38px;
+  font-size:36px;
   cursor:pointer;
 }
 
+/* SLIDER HP */
 .product-track{
   display:flex;
-  gap:12px;
+  gap:16px;
   overflow-x:auto;
   scroll-behavior:smooth;
   width:100%;
-  padding-bottom:6px;
 }
 
 .product-track::-webkit-scrollbar{
   display:none;
 }
 
-/* 🔑 FIX UTAMA: 2 PRODUK PAS LAYAR */
+/* 🔑 INI KUNCI: UKURAN NORMAL SEPERTI AWAL */
 .product-card{
-  flex:0 0 calc((100% - 12px) / 2);
-  max-width:calc((100% - 12px) / 2);
+  min-width:300px;
+  max-width:300px;
   background:linear-gradient(180deg,#151821,#10131a);
   border:1px solid #1f2230;
   padding:20px;
@@ -218,42 +219,23 @@ body{
 
 .detail-btn{
   display:inline-block;
-  padding:8px 18px;
+  padding:8px 20px;
   border:1px solid #fff;
   color:#fff;
   text-decoration:none;
-  font-size:12px;
+  font-size:13px;
 }
 
-/* ================= LANDSCAPE / MODE DESKTOP HP ================= */
-@media (orientation: landscape) and (min-width:640px){
-
-  .product-wrapper{
-    display:block;
-  }
-
-  .prod-nav{
-    display:none;
-  }
-
-  .product-track{
-    display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));
-    gap:24px;
-    overflow:visible;
-  }
-
-  .product-card{
-    flex:none;
-    max-width:none;
-  }
-}
-
-/* ================= PC / LAPTOP ================= */
+/* ================= DESKTOP / DESKTOP MODE ================= */
 @media (min-width:900px){
 
   .products{
     padding:100px 80px;
+  }
+
+  .products h2{
+    font-size:28px;
+    margin-bottom:40px;
   }
 
   .product-wrapper{
@@ -272,7 +254,7 @@ body{
   }
 
   .product-card{
-    flex:none;
+    min-width:auto;
     max-width:none;
   }
 }
@@ -312,7 +294,7 @@ body{
   color:#888;
 }
 
-/* ================= MOBILE GLOBAL FIX ================= */
+/* ================= MOBILE FIX ================= */
 @media (max-width:768px){
 
   .topbar{
