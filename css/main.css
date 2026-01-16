@@ -152,50 +152,50 @@ body{
 /* ============== PRODUK UNGGULAN ================== */
 /* ================================================= */
 
-/* DEFAULT = HP (2 PRODUK BESAR + SLIDER) */
+/* ===== DEFAULT: HP PORTRAIT (2 PRODUK + SLIDER) ===== */
 .products{
-  padding:100px 80px;
+  padding:70px 24px;
 }
 
 .products h2{
-  font-size:28px;
-  margin-bottom:40px;
+  font-size:26px;
+  margin-bottom:32px;
 }
 
 .product-wrapper{
   display:flex;
   align-items:center;
-  gap:16px;
+  gap:12px;
 }
 
 .prod-nav{
   background:none;
   border:none;
   color:#888;
-  font-size:42px;
+  font-size:38px;
   cursor:pointer;
 }
 
 .product-track{
   display:flex;
-  gap:16px;
+  gap:12px;
   overflow-x:auto;
   scroll-behavior:smooth;
   width:100%;
-  padding-right:16px;
+  padding-bottom:6px;
 }
 
 .product-track::-webkit-scrollbar{
   display:none;
 }
 
-/* 🔥 INI YANG DIREVISI */
+/* 🔑 FIX UTAMA: 2 PRODUK PAS LAYAR */
 .product-card{
-  min-width:78vw;
-  max-width:78vw;
+  flex:0 0 calc((100% - 12px) / 2);
+  max-width:calc((100% - 12px) / 2);
   background:linear-gradient(180deg,#151821,#10131a);
   border:1px solid #1f2230;
-  padding:22px;
+  padding:20px;
   transition:.3s ease;
 }
 
@@ -205,28 +205,28 @@ body{
 }
 
 .product-card .img{
-  height:170px;
+  height:160px;
   background:#1f2230;
-  margin-bottom:18px;
+  margin-bottom:16px;
   border-radius:4px;
 }
 
 .product-card h4{
-  font-size:16px;
-  margin-bottom:14px;
+  font-size:15px;
+  margin-bottom:12px;
 }
 
 .detail-btn{
   display:inline-block;
-  padding:8px 22px;
+  padding:8px 18px;
   border:1px solid #fff;
   color:#fff;
   text-decoration:none;
-  font-size:13px;
+  font-size:12px;
 }
 
-/* ================= HP DESKTOP MODE / LANDSCAPE ================= */
-@media (orientation: landscape) and (min-width: 640px){
+/* ================= LANDSCAPE / MODE DESKTOP HP ================= */
+@media (orientation: landscape) and (min-width:640px){
 
   .product-wrapper{
     display:block;
@@ -241,17 +241,20 @@ body{
     grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));
     gap:24px;
     overflow:visible;
-    padding-right:0;
   }
 
   .product-card{
-    min-width:auto;
+    flex:none;
     max-width:none;
   }
 }
 
 /* ================= PC / LAPTOP ================= */
 @media (min-width:900px){
+
+  .products{
+    padding:100px 80px;
+  }
 
   .product-wrapper{
     display:block;
@@ -269,7 +272,7 @@ body{
   }
 
   .product-card{
-    min-width:auto;
+    flex:none;
     max-width:none;
   }
 }
@@ -309,7 +312,7 @@ body{
   color:#888;
 }
 
-/* ================= MOBILE FIX ================= */
+/* ================= MOBILE GLOBAL FIX ================= */
 @media (max-width:768px){
 
   .topbar{
@@ -332,10 +335,6 @@ body{
     flex-direction:column;
     gap:30px;
     text-align:center;
-  }
-
-  .products{
-    padding:70px 24px;
   }
 
   .brand-last{
