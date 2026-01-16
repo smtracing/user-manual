@@ -69,13 +69,11 @@ body{
   background-position:center;
 }
 
-/* SLIDE IMAGE */
 .s1{background-image:url("../assets/slider/s1.jpg")}
 .s2{background-image:url("../assets/slider/s2.jpg")}
 .s3{background-image:url("../assets/slider/s3.jpg")}
 .s4{background-image:url("../assets/slider/s4.jpg")}
 
-/* DOT */
 .slider-dots{
   position:absolute;
   bottom:18px;
@@ -175,59 +173,61 @@ body{
   cursor:pointer;
 }
 
-/* SLIDER HP */
+/* TRACK */
 .product-track{
   display:flex;
   gap:16px;
   overflow-x:auto;
   scroll-behavior:smooth;
   width:100%;
+  -webkit-overflow-scrolling:touch;
 }
 
 .product-track::-webkit-scrollbar{
   display:none;
 }
 
-/* ===== KARTU PRODUK (PUTIH) ===== */
+/* ===== KARTU PRODUK (STABIL) ===== */
 .product-card{
   min-width:300px;
   max-width:300px;
   background:#ffffff;
   border:1px solid #1f2230;
   padding:20px;
-  transition:.3s ease;
+  position:relative;
+  overflow:hidden;
+  transition:transform .3s ease;
 }
 
-.product-card:hover{
-  transform:translateY(-6px);
-  border-color:#fff;
-}
-
-/* ===== FRAME GAMBAR ===== */
+/* FRAME GAMBAR */
 .product-card .img{
   height:160px;
   background:#f0f0f0;
   margin-bottom:16px;
   border-radius:4px;
-  overflow:hidden; /* 🔑 penting untuk crop gambar */
+  overflow:hidden;
+  position:relative;
+  isolation:isolate;
 }
 
-/* ===== GAMBAR PRODUK ===== */
+/* GAMBAR */
 .product-card .img img{
   width:100%;
   height:100%;
   object-fit:cover;
   display:block;
+  backface-visibility:hidden;
+  transform:translateZ(0);
 }
 
-/* ===== TEKS PRODUK ===== */
+/* TEKS */
 .product-card h4{
   font-size:15px;
   margin-bottom:12px;
   color:#111;
 }
 
-/* ===== TOMBOL DETAIL ===== */
+/* BUTTON */
 .detail-btn{
   display:inline-block;
   padding:8px 20px;
@@ -243,7 +243,17 @@ body{
   color:#fff;
 }
 
-/* ================= DESKTOP / DESKTOP MODE ================= */
+/* ================= MOBILE / NON DESKTOP ================= */
+@media (max-width:899px){
+
+  .product-card{
+    flex:0 0 auto;
+    transform:none;
+  }
+
+}
+
+/* ================= DESKTOP ================= */
 @media (min-width:900px){
 
   .products{
@@ -265,7 +275,7 @@ body{
 
   .product-track{
     display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
     gap:32px;
     overflow:visible;
   }
@@ -273,6 +283,10 @@ body{
   .product-card{
     min-width:auto;
     max-width:none;
+  }
+
+  .product-card:hover{
+    transform:translateY(-6px);
   }
 }
 
