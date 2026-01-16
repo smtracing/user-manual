@@ -69,11 +69,13 @@ body{
   background-position:center;
 }
 
+/* SLIDE IMAGE */
 .s1{background-image:url("../assets/slider/s1.jpg")}
 .s2{background-image:url("../assets/slider/s2.jpg")}
 .s3{background-image:url("../assets/slider/s3.jpg")}
 .s4{background-image:url("../assets/slider/s4.jpg")}
 
+/* DOT */
 .slider-dots{
   position:absolute;
   bottom:18px;
@@ -150,6 +152,7 @@ body{
 /* ============== PRODUK UNGGULAN ================== */
 /* ================================================= */
 
+/* ===== DEFAULT = NON-DESKTOP (HP) ===== */
 .products{
   padding:70px 24px;
 }
@@ -173,6 +176,7 @@ body{
   cursor:pointer;
 }
 
+/* SLIDER HP */
 .product-track{
   display:flex;
   gap:16px;
@@ -185,26 +189,24 @@ body{
   display:none;
 }
 
-/* ===== KARTU PRODUK (PUTIH) ===== */
+/* 🔑 REVISI WARNA SAJA DI SINI */
 .product-card{
   min-width:300px;
   max-width:300px;
-  background:#ffffff;
-  border:1px solid #e0e0e0;
+  background:#ffffff;               /* ← ASLINYA GRADIENT, DIGANTI PUTIH */
+  border:1px solid #1f2230;
   padding:20px;
   transition:.3s ease;
-  box-shadow:0 10px 30px rgba(0,0,0,.15);
 }
 
 .product-card:hover{
   transform:translateY(-6px);
-  border-color:#000;
-  box-shadow:0 18px 40px rgba(0,0,0,.25);
+  border-color:#fff;
 }
 
 .product-card .img{
   height:160px;
-  background:#f2f2f2;
+  background:#1f2230;
   margin-bottom:16px;
   border-radius:4px;
 }
@@ -212,26 +214,9 @@ body{
 .product-card h4{
   font-size:15px;
   margin-bottom:12px;
-  color:#111;
 }
 
-/* TOMBOL DETAIL */
-.detail-btn{
-  display:inline-block;
-  padding:8px 20px;
-  border:1px solid #000;
-  color:#000;
-  text-decoration:none;
-  font-size:13px;
-  transition:.25s ease;
-}
-
-.detail-btn:hover{
-  background:#000;
-  color:#fff;
-}
-
-/* ================= DESKTOP ================= */
+/* ================= DESKTOP / DESKTOP MODE ================= */
 @media (min-width:900px){
 
   .products{
