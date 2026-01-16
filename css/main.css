@@ -28,7 +28,10 @@ body{
 
 .logo-img{height:28px}
 
-.top-right{display:flex;gap:12px}
+.top-right{
+  display:flex;
+  gap:12px;
+}
 
 .help-btn{
   background:none;
@@ -62,35 +65,15 @@ body{
   flex:0 0 100%;
   aspect-ratio:16/9;
   background-size:cover;
+  background-repeat:no-repeat;
   background-position:center;
 }
 
+/* SLIDE IMAGE */
 .s1{background-image:url("../assets/slider/s1.jpg")}
 .s2{background-image:url("../assets/slider/s2.jpg")}
 .s3{background-image:url("../assets/slider/s3.jpg")}
 .s4{background-image:url("../assets/slider/s4.jpg")}
-
-.slider-dots{
-  position:absolute;
-  bottom:18px;
-  left:50%;
-  transform:translateX(-50%);
-  display:flex;
-  gap:8px;
-}
-
-.slider-dots span{
-  width:9px;
-  height:9px;
-  border-radius:50%;
-  background:#aaa;
-  opacity:.35;
-}
-
-.slider-dots span.active{
-  opacity:1;
-  background:#fff;
-}
 
 /* ================= ABOUT ================= */
 .about{
@@ -101,14 +84,15 @@ body{
   max-width:1200px;
   margin:auto;
   display:flex;
-  gap:60px;
   align-items:center;
+  gap:60px;
 }
 
 .about-image img{
   width:100%;
   max-width:480px;
   border-radius:6px;
+  box-shadow:0 20px 40px rgba(0,0,0,.6);
 }
 
 .about-text h2{
@@ -118,11 +102,13 @@ body{
 
 .about-text p{
   color:#b0b0b0;
-  line-height:1.7;
+  line-height:1.75;
+  margin-bottom:18px;
 }
 
 /* ================= BRAND VIDEO ================= */
 .brand-video{
+  width:100%;
   background:#000;
 }
 
@@ -151,7 +137,6 @@ body{
   margin-bottom:22px;
 }
 
-/* wrapper + arrow */
 .product-wrapper{
   display:flex;
   align-items:center;
@@ -174,19 +159,21 @@ body{
   width:100%;
 }
 
-.product-track::-webkit-scrollbar{display:none}
+.product-track::-webkit-scrollbar{
+  display:none;
+}
 
-/* CARD */
+/* 🔑 KARTU LANDSCAPE (SESUAI GAMBAR REFERENSI) */
 .product-card{
   flex:0 0 80%;
   max-width:80%;
   background:linear-gradient(180deg,#151821,#10131a);
   border:1px solid #1f2230;
-  border-radius:6px;
   padding:14px;
+  border-radius:6px;
 }
 
-/* image */
+/* gambar LANDSCAPE */
 .product-card .img{
   width:100%;
   aspect-ratio:16/9;
@@ -195,28 +182,20 @@ body{
   margin-bottom:12px;
 }
 
-/* 🔑 NAMA + DETAIL SEJAJAR */
-.product-info{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-}
-
-.product-info h4{
+/* teks */
+.product-card h4{
   font-size:14px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
+  margin-bottom:10px;
 }
 
+/* tombol */
 .detail-btn{
+  display:inline-block;
+  padding:7px 18px;
   border:1px solid #fff;
-  padding:6px 14px;
-  font-size:12px;
-  text-decoration:none;
   color:#fff;
-  white-space:nowrap;
+  text-decoration:none;
+  font-size:12px;
 }
 
 /* ================= DESKTOP / MODE DESKTOP ================= */
@@ -241,7 +220,7 @@ body{
 
   .product-track{
     display:grid;
-    grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+    grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));
     gap:32px;
     overflow:visible;
   }
@@ -249,33 +228,10 @@ body{
   .product-card{
     flex:none;
     max-width:none;
-    padding:18px;
-  }
-
-  .product-info h4{
-    font-size:15px;
-  }
-
-  .detail-btn{
-    font-size:13px;
-    padding:7px 16px;
   }
 }
 
 /* ================= FOOTER ================= */
-.brand-last{
-  padding:90px 80px;
-  border-top:1px solid #1f2230;
-}
-
-.brand-last-wrap{
-  max-width:1200px;
-  margin:auto;
-  display:grid;
-  grid-template-columns:1fr auto 1fr;
-  gap:70px;
-}
-
 .footer{
   border-top:1px solid #1f2230;
   padding:40px;
@@ -286,9 +242,13 @@ body{
 /* ================= MOBILE FIX ================= */
 @media (max-width:768px){
 
-  .topbar{height:72px}
+  .topbar{
+    height:72px;
+  }
 
-  .hero-slider{margin-top:96px}
+  .hero-slider{
+    margin-top:96px;
+  }
 
   .about{
     padding:70px 24px;
@@ -296,15 +256,7 @@ body{
 
   .about-wrap{
     flex-direction:column;
-    text-align:center;
-  }
-
-  .brand-last{
-    padding:70px 24px;
-  }
-
-  .brand-last-wrap{
-    grid-template-columns:1fr;
+    gap:30px;
     text-align:center;
   }
 }
