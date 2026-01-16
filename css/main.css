@@ -1,3 +1,4 @@
+/* ================= RESET ================= */
 *{
   box-sizing:border-box;
   margin:0;
@@ -22,7 +23,7 @@ body{
   top:0;
   width:100%;
   background:#0e0f13;
-  z-index:10;
+  z-index:100;
 }
 
 .logo-img{height:28px}
@@ -49,7 +50,6 @@ body{
 /* ================= HERO SLIDER ================= */
 .hero-slider{
   margin-top:64px;
-  height:480px;
   position:relative;
   overflow:hidden;
   background:#000;
@@ -57,46 +57,23 @@ body{
 
 .hero-slider .slides{
   display:flex;
-  height:100%;
+  width:100%;
   transition:transform 1s ease;
 }
 
 .hero-slider .slide{
   flex:0 0 100%;
-  height:100%;
-  background-size:98% auto;
+  aspect-ratio:16/9;
+  background-size:cover;
   background-repeat:no-repeat;
   background-position:center;
-  background-color:#000;
 }
 
+/* SLIDE IMAGE */
 .s1{background-image:url("../assets/slider/s1.jpg")}
 .s2{background-image:url("../assets/slider/s2.jpg")}
 .s3{background-image:url("../assets/slider/s3.jpg")}
 .s4{background-image:url("../assets/slider/s4.jpg")}
-
-/* DOT */
-.slider-dots{
-  position:absolute;
-  bottom:18px;
-  left:50%;
-  transform:translateX(-50%);
-  display:flex;
-  gap:8px;
-}
-
-.slider-dots span{
-  width:9px;
-  height:9px;
-  border-radius:50%;
-  background:#aaa;
-  opacity:.35;
-}
-
-.slider-dots span.active{
-  opacity:1;
-  background:#fff;
-}
 
 /* ================= ABOUT ================= */
 .about{
@@ -129,13 +106,6 @@ body{
   margin-bottom:18px;
 }
 
-@media(max-width:900px){
-  .about-wrap{
-    flex-direction:column;
-    text-align:center;
-  }
-}
-
 /* ================= BRAND VIDEO ================= */
 .brand-video{
   width:100%;
@@ -143,9 +113,8 @@ body{
 }
 
 .brand-video .video-frame{
-  position:relative;
   width:100%;
-  height:80vh;
+  aspect-ratio:16/9;
 }
 
 .brand-video iframe{
@@ -154,168 +123,111 @@ body{
   border:0;
 }
 
-/* ================= PRODUK UNGGULAN ================= */
+/* ================================================= */
+/* ============== PRODUK UNGGULAN ================== */
+/* ================================================= */
+
+/* ===== NON DESKTOP (HP) ===== */
 .products{
-  padding:100px 80px;
+  padding:70px 24px;
 }
 
 .products h2{
-  font-size:28px;
-  margin-bottom:40px;
+  font-size:22px;
+  margin-bottom:22px;
 }
 
 .product-wrapper{
   display:flex;
   align-items:center;
-  gap:20px;
+  gap:10px;
 }
 
 .prod-nav{
   background:none;
   border:none;
-  color:#888;
-  font-size:42px;
-  cursor:pointer;
-  transition:.3s;
+  color:#777;
+  font-size:32px;
 }
 
-.prod-nav:hover{color:#fff}
-
+/* slider */
 .product-track{
   display:flex;
-  gap:40px;
-  overflow:hidden;
+  gap:16px;
+  overflow-x:auto;
   scroll-behavior:smooth;
   width:100%;
 }
 
+.product-track::-webkit-scrollbar{
+  display:none;
+}
+
+/* 🔑 KARTU LANDSCAPE (SESUAI GAMBAR REFERENSI) */
 .product-card{
-  min-width:340px;
+  flex:0 0 80%;
+  max-width:80%;
   background:linear-gradient(180deg,#151821,#10131a);
   border:1px solid #1f2230;
-  padding:22px;
-  transition:.3s ease;
+  padding:14px;
+  border-radius:6px;
 }
 
-.product-card:hover{
-  transform:translateY(-6px);
-  border-color:#fff;
-}
-
+/* gambar LANDSCAPE */
 .product-card .img{
-  height:170px;
+  width:100%;
+  aspect-ratio:16/9;
   background:#1f2230;
-  margin-bottom:18px;
-  border-radius:4px;
+  border-radius:6px;
+  margin-bottom:12px;
 }
 
+/* teks */
 .product-card h4{
-  font-size:16px;
-  margin-bottom:14px;
+  font-size:14px;
+  margin-bottom:10px;
 }
 
+/* tombol */
 .detail-btn{
   display:inline-block;
-  padding:8px 22px;
+  padding:7px 18px;
   border:1px solid #fff;
   color:#fff;
   text-decoration:none;
-  font-size:13px;
-  letter-spacing:.5px;
-  transition:.3s;
-}
-
-.detail-btn:hover{
-  background:#fff;
-  color:#000;
-}
-
-.product-dots{
-  margin-top:35px;
-  display:flex;
-  justify-content:center;
-  gap:10px;
-}
-
-.product-dots span{
-  width:8px;
-  height:8px;
-  border-radius:50%;
-  background:#aaa;
-  opacity:.35;
-}
-
-.product-dots span.active{
-  opacity:1;
-  background:#fff;
-}
-
-/* ================= INFO TERAKHIR ================= */
-.brand-last{
-  padding:90px 80px;
-  background:#0e0f13;
-  border-top:1px solid #1f2230;
-}
-
-.brand-last-wrap{
-  max-width:1200px;
-  margin:auto;
-  display:grid;
-  grid-template-columns:1fr auto 1fr;
-  align-items:center;
-  gap:70px; /* jarak antar kolom diperlebar */
-}
-
-/* kiri */
-.brand-contact h3,
-.brand-desc h3{
-  font-size:18px;
-  margin-bottom:16px;
-}
-
-.brand-contact p,
-.brand-desc p{
-  font-size:14px;
-  line-height:1.7;
-  color:#b0b0b0;
-}
-
-/* tengah */
-.brand-center{
-  text-align:center;
-}
-
-.brand-center img{
-  max-width:200px;
-  width:100%;
-  margin-bottom:8px;
-}
-
-/* tahun */
-.brand-center .brand-year{
   font-size:12px;
-  color:#9a7a45;          /* coklat gelap */
-  opacity:0.85;
-  letter-spacing:.5px;
 }
 
-/* kanan (digeser menjauh dari logo) */
-.brand-desc{
-  padding-left:60px;
-}
+/* ================= DESKTOP / MODE DESKTOP ================= */
+@media (min-width:900px){
 
-@media(max-width:900px){
-  .brand-last-wrap{
-    grid-template-columns:1fr;
-    text-align:center;
+  .products{
+    padding:100px 80px;
   }
 
-  .brand-desc{
-    padding-left:0;
+  .products h2{
+    font-size:28px;
+    margin-bottom:40px;
   }
 
-  .brand-center{
-    margin:30px 0;
+  .product-wrapper{
+    display:block;
+  }
+
+  .prod-nav{
+    display:none;
+  }
+
+  .product-track{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));
+    gap:32px;
+    overflow:visible;
+  }
+
+  .product-card{
+    flex:none;
+    max-width:none;
   }
 }
 
@@ -327,3 +239,24 @@ body{
   color:#888;
 }
 
+/* ================= MOBILE FIX ================= */
+@media (max-width:768px){
+
+  .topbar{
+    height:72px;
+  }
+
+  .hero-slider{
+    margin-top:96px;
+  }
+
+  .about{
+    padding:70px 24px;
+  }
+
+  .about-wrap{
+    flex-direction:column;
+    gap:30px;
+    text-align:center;
+  }
+}
