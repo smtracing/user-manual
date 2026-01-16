@@ -152,7 +152,7 @@ body{
 /* ============== PRODUK UNGGULAN ================== */
 /* ================================================= */
 
-/* DEFAULT = HP PORTRAIT (2 ITEM + SLIDER) */
+/* DEFAULT = HP (2 PRODUK BESAR + SLIDER) */
 .products{
   padding:100px 80px;
 }
@@ -182,14 +182,17 @@ body{
   overflow-x:auto;
   scroll-behavior:smooth;
   width:100%;
+  padding-right:16px;
 }
 
 .product-track::-webkit-scrollbar{
   display:none;
 }
 
+/* 🔥 INI YANG DIREVISI */
 .product-card{
-  min-width:48%; /* 2 produk terlihat */
+  min-width:78vw;
+  max-width:78vw;
   background:linear-gradient(180deg,#151821,#10131a);
   border:1px solid #1f2230;
   padding:22px;
@@ -223,7 +226,6 @@ body{
 }
 
 /* ================= HP DESKTOP MODE / LANDSCAPE ================= */
-/* TAMPIL SEMUA (GRID) */
 @media (orientation: landscape) and (min-width: 640px){
 
   .product-wrapper{
@@ -239,10 +241,12 @@ body{
     grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));
     gap:24px;
     overflow:visible;
+    padding-right:0;
   }
 
   .product-card{
     min-width:auto;
+    max-width:none;
   }
 }
 
@@ -266,6 +270,7 @@ body{
 
   .product-card{
     min-width:auto;
+    max-width:none;
   }
 }
 
@@ -304,9 +309,7 @@ body{
   color:#888;
 }
 
-/* ================================================= */
-/* ================= MOBILE FIX ==================== */
-/* ================================================= */
+/* ================= MOBILE FIX ================= */
 @media (max-width:768px){
 
   .topbar{
@@ -318,7 +321,6 @@ body{
   }
 
   .hero-slider .slide{
-    aspect-ratio:16/9;
     min-height:220px;
   }
 
