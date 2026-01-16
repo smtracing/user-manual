@@ -152,35 +152,34 @@ body{
 /* ============== PRODUK UNGGULAN ================== */
 /* ================================================= */
 
-/* ===== DEFAULT = NON-DESKTOP (HP) ===== */
-/* BALIK KE TAMPILAN AWAL YANG AMAN */
+/* ===== HP / NON-DESKTOP ===== */
 .products{
-  padding:70px 24px;
+  padding:70px 20px;
 }
 
 .products h2{
   font-size:22px;
-  margin-bottom:24px;
+  margin-bottom:22px;
 }
 
 .product-wrapper{
   display:flex;
   align-items:center;
-  gap:12px;
+  gap:10px;
 }
 
 .prod-nav{
   background:none;
   border:none;
-  color:#888;
-  font-size:36px;
+  color:#777;
+  font-size:32px;
   cursor:pointer;
 }
 
-/* SLIDER HP */
+/* SLIDER */
 .product-track{
   display:flex;
-  gap:16px;
+  gap:14px;
   overflow-x:auto;
   scroll-behavior:smooth;
   width:100%;
@@ -190,40 +189,40 @@ body{
   display:none;
 }
 
-/* 🔑 INI KUNCI: UKURAN NORMAL SEPERTI AWAL */
+/* 🔑 FIX UTAMA: KARTU PROPORSIONAL */
 .product-card{
-  min-width:300px;
-  max-width:300px;
+  flex:0 0 calc(50% - 7px);   /* 2 kartu PAS layar */
   background:linear-gradient(180deg,#151821,#10131a);
   border:1px solid #1f2230;
-  padding:20px;
-  transition:.3s ease;
+  padding:14px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
 }
 
-.product-card:hover{
-  transform:translateY(-6px);
-  border-color:#fff;
-}
-
+/* GAMBAR → SEG1 4 */
 .product-card .img{
-  height:160px;
+  width:100%;
+  aspect-ratio:1/1;
   background:#1f2230;
-  margin-bottom:16px;
-  border-radius:4px;
-}
-
-.product-card h4{
-  font-size:15px;
+  border-radius:6px;
   margin-bottom:12px;
 }
 
+/* JUDUL NORMAL (TIDAK BESAR) */
+.product-card h4{
+  font-size:14px;
+  margin-bottom:10px;
+  text-align:center;
+}
+
+/* TOMBOL RINGKAS */
 .detail-btn{
-  display:inline-block;
-  padding:8px 20px;
+  padding:6px 16px;
+  font-size:12px;
   border:1px solid #fff;
   color:#fff;
   text-decoration:none;
-  font-size:13px;
 }
 
 /* ================= DESKTOP / DESKTOP MODE ================= */
@@ -254,8 +253,21 @@ body{
   }
 
   .product-card{
-    min-width:auto;
-    max-width:none;
+    flex:none;
+    padding:22px;
+  }
+
+  .product-card .img{
+    aspect-ratio:4/3;
+  }
+
+  .product-card h4{
+    font-size:16px;
+  }
+
+  .detail-btn{
+    padding:8px 22px;
+    font-size:13px;
   }
 }
 
