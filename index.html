@@ -30,9 +30,35 @@
   </div>
   <div class="top-right">
     <button class="help-btn">Bantuan</button>
-    <button class="menu-btn">☰</button>
+    <button class="menu-btn" id="menuBtn" aria-label="Menu" aria-controls="menuDrawer" aria-expanded="false">☰</button>
   </div>
 </header>
+
+<!-- ===== HAMBURGER MENU (DRAWER) ===== -->
+<div class="menu-overlay" id="menuOverlay" aria-hidden="true"></div>
+
+<aside class="menu-drawer" id="menuDrawer" aria-label="Menu">
+  <div class="menu-head">
+    <div class="menu-title">MENU</div>
+    <button class="menu-close" id="menuClose" aria-label="Tutup">✕</button>
+  </div>
+
+  <nav class="menu-list">
+    <a class="menu-item" href="cdi-mapping.html">
+      <span class="menu-item-title">CDI MAPPING</span>
+      <span class="menu-item-sub">Halaman mapping (isi nanti)</span>
+    </a>
+
+    <a class="menu-item" href="dyno-road.html">
+      <span class="menu-item-title">DYNO ROAD</span>
+      <span class="menu-item-sub">Halaman dyno road (isi nanti)</span>
+    </a>
+  </nav>
+
+  <div class="menu-foot">
+    <div class="menu-foot-note">SMT Racing • Tools</div>
+  </div>
+</aside>
 
 <section class="hero-slider">
   <div class="slides">
@@ -185,4 +211,3 @@
 <script src="js/main.js"></script>
 </body>
 </html>
-
