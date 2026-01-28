@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CDI MAPPING</title>
+
+  <!-- pakai style.css kamu -->
+  <link rel="stylesheet" href="cdi/css/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="title">CDI MAPPING</div>
+
+  <!-- MENU ☰ (hanya CDI) -->
+  <div class="menu-wrapper">
+    <button class="menu-btn" onclick="toggleMenu()">☰</button>
+
+    <div id="menuDropdown" class="menu-dropdown hidden">
+      <div onclick="selectCDI('basic')">CDI POWER BAND A1</div>
+      <div onclick="selectCDI('dual')">CDI POWER SMT A2</div>
+      <div onclick="selectCDI('racing')">CDI POWER SMT A3</div>
+    </div>
+  </div>
+</header>
+
+<div class="bg-image"></div>
+
+<!-- area render map -->
+<div id="contentArea" class="content empty">
+  <div class="empty-text">Pilih tipe CDI melalui menu ☰</div>
+</div>
+
+
+<script src="cdi/js/app.js"></script>
+
+<!-- =========================
+     MODUL CDI (NON-MODULE)
+========================= -->
+<script src="cdi/js/esp/esp-api.js"></script>
+<script src="cdi/js/esp/esp-api-dual.js"></script>
+<script src="cdi/js/cdi-basic/cdi-basic.js"></script>
+<script src="cdi/js/cdi-basic/cdi-basic-live.js"></script>
+<script src="cdi/js/cdi-dual/cdi-dual.js"></script>
+<script src="cdi/js/cdi-dual/cdi-dual-live.js"></script>
+<script src="cdi/js/cdi-racing/cdi-racing.js"></script>
+
+</body>
+</html>
