@@ -19,21 +19,27 @@
   <link rel="stylesheet" href="cdi/css/style.css" />
 
   <style>
-    /* ===== TOPBAR BUTTONS (sejajar) ===== */
+    :root{
+      --rot-base: 1;     /* dihitung via JS */
+      --ui-zoom:  1;     /* slider zoom */
+    }
+
+    /* ===== topbar sejajar ===== */
     .topbar{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:10px;
     }
+
     .top-actions{
       display:flex;
       align-items:center;
       gap:10px;
       margin-left:auto;
-      flex:0 0 auto;
     }
 
+    /* tombol chip kecil (ROTATE/INSTALL) */
     .chip-btn{
       display:inline-flex;
       align-items:center;
@@ -56,6 +62,7 @@
     }
     .chip-btn:active{ transform:scale(.98); }
 
+    /* tombol ☰ */
     .menu-wrapper{ position:relative; }
     .menu-wrapper .menu-btn{
       height:36px;
@@ -68,91 +75,191 @@
       font-size:18px;
       cursor:pointer;
       -webkit-tap-highlight-color: transparent;
-      user-select:none;
     }
+
+    /* dropdown tetap aman */
     .menu-dropdown{
       top:44px !important;
       right:0 !important;
-      z-index:99999;
+      z-index:999999;
     }
 
-    @media (max-width:420px){
-      .chip-btn{ padding:0 10px; font-size:11px; height:34px; }
-      .menu-wrapper .menu-btn{ height:34px; width:40px; }
+    /* ===== ROTATE STAGE ===== */
+    #rotateStage{ min-height:100vh; }
+
+    /* Normal */
+    #appRoot{
+      min-height:100vh;
+      position:relative;
     }
 
-    /* ===== ROTATE MODE (ANDROID/PWA AMAN) ===== */
-    :root{
-      --vw: 100vw; /* akan di-update JS supaya presisi */
-      --vh: 100vh;
-    }
-
-    #appRoot{ min-height:100vh; }
-
+    /* Rotate: kita putar appRoot di tengah layar dan pakai base-scale agar tidak “kebablasan” */
     body.rotate-mode{
       overflow:hidden;
-      height:100%;
+    }
+
+    body.rotate-mode #rotateStage{
+      position:fixed;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:#0e0f13;
+      overflow:hidden;
     }
 
     body.rotate-mode #appRoot{
-      position:fixed;
-      top:0;
-      left:0;
-
-      /* swap ukuran pakai variabel viewport */
-      width: var(--vh);
-      height: var(--vw);
-
-      transform-origin: top left;
-
-      /* PENTING: pakai -100vw, bukan -100% */
-      transform: rotate(90deg) translateY(calc(-1 * var(--vw)));
+      width:100vw;
+      height:100vh;
+      transform-origin:center;
+      transform: rotate(90deg) scale(calc(var(--rot-base) * var(--ui-zoom)));
+      overflow:hidden;
     }
 
-    /* bg-image di rotate-mode jangan fixed (sering bikin "hilang") */
-    body.rotate-mode .bg-image{
-      position:absolute !important;
-      inset:0 !important;
+    /* ===== ZOOM DOCK (tab kecil bawah & ikut rotasi karena ada di dalam appRoot) ===== */
+    .zoom-dock{
+      position:absolute;
+      left:50%;
+      bottom:10px;
+      transform:translateX(-50%);
+      z-index:999998;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:8px 10px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.16);
+      background:rgba(0,0,0,.40);
+      backdrop-filter: blur(10px);
+      -webkit-tap-highlight-color: transparent;
+      user-select:none;
+    }
+
+    .zoom-dock .zbtn{
+      height:34px;
+      min-width:40px;
+      padding:0 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-weight:800;
+      cursor:pointer;
+    }
+    .zoom-dock .zbtn:active{ transform:scale(.98); }
+
+    .zoom-dock .zrange{
+      width:140px;
+      accent-color:#ffffff;
+    }
+
+    .zoom-dock .lock{
+      height:34px;
+      padding:0 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-weight:800;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      white-space:nowrap;
+    }
+    .zoom-dock .lock.on{
+      border-color: rgba(255,255,255,.35);
+      background: rgba(0,0,0,.55);
+    }
+
+    /* ===== TOOLTIP kanan & bawah ===== */
+    .hint{
+      position:absolute;
+      z-index:999997;
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-size:12px;
+      letter-spacing:.02em;
+      backdrop-filter: blur(10px);
+      opacity:0;
+      transform: translateY(4px);
+      transition: .25s ease;
+      pointer-events:none;
+    }
+    .hint.show{ opacity:1; transform: translateY(0); }
+
+    .hint-right{ right:10px; top:50%; transform:translateY(-50%); }
+    .hint-bottom{ left:50%; bottom:58px; transform:translateX(-50%); }
+
+    /* ===== LOCK: cegah halaman geser waktu edit kurva ===== */
+    body.ui-lock, body.ui-lock html{
+      overscroll-behavior: none;
+    }
+
+    /* kecilin untuk HP sempit */
+    @media (max-width:420px){
+      .chip-btn{ padding:0 10px; font-size:11px; height:34px; }
+      .menu-wrapper .menu-btn{ height:34px; width:40px; }
+      .zoom-dock .zrange{ width:110px; }
     }
   </style>
 </head>
 
 <body>
 
-<div id="appRoot">
+<div id="rotateStage">
+  <div id="appRoot">
 
-  <header class="topbar">
-    <div class="title">CDI MAPPING</div>
+    <header class="topbar">
+      <div class="title">CDI MAPPING</div>
 
-    <div class="top-actions">
+      <!-- KANAN: ROTATE + INSTALL + ☰ -->
+      <div class="top-actions">
 
-      <button id="rotateBtn" class="chip-btn" type="button" aria-label="Rotate">
-        ⟳ ROTATE
-      </button>
+        <button id="rotateBtn" class="chip-btn" type="button" aria-label="Rotate">
+          ⟳ ROTATE
+        </button>
 
-      <button id="installBtn" class="chip-btn" type="button" aria-label="Install" style="display:none;">
-        ⬇ INSTALL
-      </button>
+        <button id="installBtn" class="chip-btn" type="button" aria-label="Install" style="display:none;">
+          ⬇ INSTALL
+        </button>
 
-      <div class="menu-wrapper">
-        <button class="menu-btn" type="button" onclick="toggleMenu()" aria-label="Menu">☰</button>
-
-        <div id="menuDropdown" class="menu-dropdown hidden">
-          <div onclick="selectCDI('basic')">CDI POWER BAND A1</div>
-          <div onclick="selectCDI('dual')">CDI POWER SMT A2</div>
-          <div onclick="selectCDI('racing')">CDI POWER SMT A3</div>
+        <div class="menu-wrapper">
+          <button class="menu-btn" type="button" onclick="toggleMenu()" aria-label="Menu">☰</button>
+          <div id="menuDropdown" class="menu-dropdown hidden">
+            <div onclick="selectCDI('basic')">CDI POWER BAND A1</div>
+            <div onclick="selectCDI('dual')">CDI POWER SMT A2</div>
+            <div onclick="selectCDI('racing')">CDI POWER SMT A3</div>
+          </div>
         </div>
+
       </div>
+    </header>
 
+    <div class="bg-image"></div>
+
+    <div id="contentArea" class="content empty">
+      <div class="empty-text">Pilih tipe CDI melalui menu ☰</div>
     </div>
-  </header>
 
-  <div class="bg-image"></div>
+    <!-- ===== TOOLTIP ===== -->
+    <div id="hintRight" class="hint hint-right">Geser layar: tarik area map</div>
+    <div id="hintBottom" class="hint hint-bottom">Zoom: pakai tab bawah (biar layar tidak lari)</div>
 
-  <div id="contentArea" class="content empty">
-    <div class="empty-text">Pilih tipe CDI melalui menu ☰</div>
+    <!-- ===== ZOOM DOCK (bawah) ===== -->
+    <div class="zoom-dock" id="zoomDock" aria-label="Zoom Dock">
+      <button class="zbtn" id="zoomOutBtn" type="button">−</button>
+      <input class="zrange" id="zoomRange" type="range" min="80" max="140" value="100">
+      <button class="zbtn" id="zoomInBtn" type="button">+</button>
+      <button class="lock on" id="lockBtn" type="button" title="Kunci layar agar tidak scroll">
+        🔒 LOCK
+      </button>
+    </div>
+
   </div>
-
 </div>
 
 <!-- app utama -->
@@ -169,31 +276,101 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-
-  /* ===== viewport vars (biar rotate pas, tidak "kebablasan") ===== */
-  function setViewportVars(){
-    // innerWidth/innerHeight biasanya lebih akurat di Android/PWA
-    document.documentElement.style.setProperty('--vw', window.innerWidth + 'px');
-    document.documentElement.style.setProperty('--vh', window.innerHeight + 'px');
+  /* ========= HITUNG BASE SCALE ROTATE (biar tidak kebablasan dan tombol ☰ tetap kelihatan) ========= */
+  function updateRotateBase(){
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const base = (w < h) ? (w / h) : 1; // portrait: shrink secukupnya
+    document.documentElement.style.setProperty('--rot-base', base.toFixed(4));
   }
-  setViewportVars();
-  window.addEventListener('resize', setViewportVars);
-  window.addEventListener('orientationchange', () => setTimeout(setViewportVars, 200));
+  updateRotateBase();
+  window.addEventListener('resize', updateRotateBase);
 
-  /* ===== ROTATE (SESSION ONLY: hilang saat app ditutup) ===== */
+  /* ========= ROTATE (PAKAI sessionStorage -> tutup app balik normal) ========= */
   const rotateBtn = document.getElementById('rotateBtn');
-  const saved = sessionStorage.getItem('rotate_mode_cdi') === '1';
-  if (saved) document.body.classList.add('rotate-mode');
-  else document.body.classList.remove('rotate-mode');
+
+  // restore hanya selama sesi (bukan permanen)
+  const savedRotate = sessionStorage.getItem('rotate_mode_cdi') === '1';
+  if (savedRotate) document.body.classList.add('rotate-mode');
 
   rotateBtn.addEventListener('click', () => {
-    const on = document.body.classList.toggle('rotate-mode');
-    sessionStorage.setItem('rotate_mode_cdi', on ? '1' : '0');
-    // update var setelah mode berubah (biar pas)
-    setTimeout(setViewportVars, 50);
+    document.body.classList.toggle('rotate-mode');
+    sessionStorage.setItem('rotate_mode_cdi',
+      document.body.classList.contains('rotate-mode') ? '1' : '0'
+    );
+    // tampilkan hint sebentar setiap kali rotate
+    showHints();
   });
 
-  /* ===== INSTALL (PWA) ===== */
+  /* ========= ZOOM DOCK (ZOOM hanya mengubah scale rotate-mode) ========= */
+  const zoomRange = document.getElementById('zoomRange');
+  const zoomInBtn = document.getElementById('zoomInBtn');
+  const zoomOutBtn = document.getElementById('zoomOutBtn');
+
+  function setZoomFromPercent(pct){
+    const z = Math.max(0.80, Math.min(1.40, pct / 100));
+    document.documentElement.style.setProperty('--ui-zoom', z.toFixed(3));
+    sessionStorage.setItem('zoom_cdi_pct', String(Math.round(z * 100)));
+    zoomRange.value = String(Math.round(z * 100));
+  }
+
+  const savedZoom = parseInt(sessionStorage.getItem('zoom_cdi_pct') || '100', 10);
+  setZoomFromPercent(isNaN(savedZoom) ? 100 : savedZoom);
+
+  zoomRange.addEventListener('input', () => setZoomFromPercent(parseInt(zoomRange.value,10) || 100));
+  zoomInBtn.addEventListener('click', () => setZoomFromPercent((parseInt(zoomRange.value,10) || 100) + 5));
+  zoomOutBtn.addEventListener('click', () => setZoomFromPercent((parseInt(zoomRange.value,10) || 100) - 5));
+
+  /* ========= LOCK (biar edit titik kurva tidak “scroll layar”) ========= */
+  const lockBtn = document.getElementById('lockBtn');
+  let lockOn = true;
+
+  function applyLock(){
+    document.body.classList.toggle('ui-lock', lockOn);
+    lockBtn.classList.toggle('on', lockOn);
+    lockBtn.innerHTML = lockOn ? '🔒 LOCK' : '🔓 UNLOCK';
+  }
+  applyLock();
+
+  lockBtn.addEventListener('click', () => {
+    lockOn = !lockOn;
+    applyLock();
+  });
+
+  // cegah scroll/pull-to-refresh saat lock ON (kecuali kalau sentuh slider zoom / menu)
+  function isAllowedTarget(t){
+    return !!(t.closest && (
+      t.closest('#zoomDock') ||
+      t.closest('#menuDropdown') ||
+      t.closest('.menu-wrapper')
+    ));
+  }
+
+  document.addEventListener('touchmove', (e) => {
+    if (!lockOn) return;
+    if (isAllowedTarget(e.target)) return;
+    // cegah halaman geser
+    e.preventDefault();
+  }, { passive:false });
+
+  /* ========= TOOLTIP kanan & bawah ========= */
+  const hintRight = document.getElementById('hintRight');
+  const hintBottom = document.getElementById('hintBottom');
+  let hintTimer = null;
+
+  function showHints(){
+    clearTimeout(hintTimer);
+    hintRight.classList.add('show');
+    hintBottom.classList.add('show');
+    hintTimer = setTimeout(() => {
+      hintRight.classList.remove('show');
+      hintBottom.classList.remove('show');
+    }, 3500);
+  }
+  // tampil sekali saat pertama load
+  showHints();
+
+  /* ========= INSTALL (PWA) ========= */
   const installBtn = document.getElementById('installBtn');
   let deferredPrompt = null;
 
@@ -215,7 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
     installBtn.style.display = 'none';
   });
 
-  /* ===== SERVICE WORKER REGISTER ===== */
+  /* ========= SERVICE WORKER ========= */
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
   }
