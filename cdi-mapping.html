@@ -2,7 +2,7 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>CDI MAPPING</title>
 
   <!-- ===== PWA (HANYA CDI) ===== -->
@@ -18,17 +18,14 @@
   <!-- style utama -->
   <link rel="stylesheet" href="cdi/css/style.css" />
 
-  <!-- ===== HEADER BUTTON BAR (sejajar HP/PC) + ROTATE ===== -->
   <style>
-    /* topbar: paksa jadi flex rapi */
+    /* ===== TOPBAR BUTTONS (sejajar) ===== */
     .topbar{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:10px;
     }
-
-    /* sisi kanan berisi tombol2 */
     .top-actions{
       display:flex;
       align-items:center;
@@ -37,7 +34,6 @@
       flex:0 0 auto;
     }
 
-    /* style tombol kecil (ROTATE/INSTALL) */
     .chip-btn{
       display:inline-flex;
       align-items:center;
@@ -60,7 +56,6 @@
     }
     .chip-btn:active{ transform:scale(.98); }
 
-    /* tombol ☰ tetap */
     .menu-wrapper{ position:relative; }
     .menu-wrapper .menu-btn{
       height:36px;
@@ -75,46 +70,60 @@
       -webkit-tap-highlight-color: transparent;
       user-select:none;
     }
-
-    /* dropdown tidak ketutup header */
     .menu-dropdown{
       top:44px !important;
       right:0 !important;
       z-index:99999;
     }
 
-    /* ===== ROTATE MODE ===== */
-    #appRoot{ min-height:100vh; }
-    body.rotate-mode{ overflow:hidden; }
+    @media (max-width:420px){
+      .chip-btn{ padding:0 10px; font-size:11px; height:34px; }
+      .menu-wrapper .menu-btn{ height:34px; width:40px; }
+    }
 
-    /* jangan scale > 1 biar tombol ☰ tidak kepotong */
+    /* ===== ROTATE MODE (ANDROID/PWA AMAN) ===== */
+    :root{
+      --vw: 100vw; /* akan di-update JS supaya presisi */
+      --vh: 100vh;
+    }
+
+    #appRoot{ min-height:100vh; }
+
+    body.rotate-mode{
+      overflow:hidden;
+      height:100%;
+    }
+
     body.rotate-mode #appRoot{
       position:fixed;
       top:0;
       left:0;
-      width:100vh;
-      height:100vw;
+
+      /* swap ukuran pakai variabel viewport */
+      width: var(--vh);
+      height: var(--vw);
+
       transform-origin: top left;
-      transform: rotate(90deg) translateY(-100%) scale(1);
+
+      /* PENTING: pakai -100vw, bukan -100% */
+      transform: rotate(90deg) translateY(calc(-1 * var(--vw)));
     }
 
-    /* HP sempit */
-    @media (max-width:420px){
-      .chip-btn{ padding:0 10px; font-size:11px; height:34px; }
-      .menu-wrapper .menu-btn{ height:34px; width:40px; }
+    /* bg-image di rotate-mode jangan fixed (sering bikin "hilang") */
+    body.rotate-mode .bg-image{
+      position:absolute !important;
+      inset:0 !important;
     }
   </style>
 </head>
 
 <body>
 
-<!-- semua konten CDI di root (biar bisa rotate) -->
 <div id="appRoot">
 
   <header class="topbar">
     <div class="title">CDI MAPPING</div>
 
-    <!-- KANAN: ROTATE + INSTALL + ☰ -->
     <div class="top-actions">
 
       <button id="rotateBtn" class="chip-btn" type="button" aria-label="Rotate">
@@ -125,7 +134,6 @@
         ⬇ INSTALL
       </button>
 
-      <!-- MENU ☰ (pilih tipe CDI) -->
       <div class="menu-wrapper">
         <button class="menu-btn" type="button" onclick="toggleMenu()" aria-label="Menu">☰</button>
 
@@ -145,7 +153,7 @@
     <div class="empty-text">Pilih tipe CDI melalui menu ☰</div>
   </div>
 
-</div><!-- /#appRoot -->
+</div>
 
 <!-- app utama -->
 <script src="cdi/js/app.js"></script>
@@ -161,20 +169,29 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  /* ===== ROTATE (SESSION: hilang saat app ditutup) ===== */
-  const rotateBtn = document.getElementById('rotateBtn');
 
-  // restore hanya selama sesi masih hidup
+  /* ===== viewport vars (biar rotate pas, tidak "kebablasan") ===== */
+  function setViewportVars(){
+    // innerWidth/innerHeight biasanya lebih akurat di Android/PWA
+    document.documentElement.style.setProperty('--vw', window.innerWidth + 'px');
+    document.documentElement.style.setProperty('--vh', window.innerHeight + 'px');
+  }
+  setViewportVars();
+  window.addEventListener('resize', setViewportVars);
+  window.addEventListener('orientationchange', () => setTimeout(setViewportVars, 200));
+
+  /* ===== ROTATE (SESSION ONLY: hilang saat app ditutup) ===== */
+  const rotateBtn = document.getElementById('rotateBtn');
   const saved = sessionStorage.getItem('rotate_mode_cdi') === '1';
   if (saved) document.body.classList.add('rotate-mode');
   else document.body.classList.remove('rotate-mode');
 
-  if (rotateBtn){
-    rotateBtn.addEventListener('click', () => {
-      const on = document.body.classList.toggle('rotate-mode');
-      sessionStorage.setItem('rotate_mode_cdi', on ? '1' : '0');
-    });
-  }
+  rotateBtn.addEventListener('click', () => {
+    const on = document.body.classList.toggle('rotate-mode');
+    sessionStorage.setItem('rotate_mode_cdi', on ? '1' : '0');
+    // update var setelah mode berubah (biar pas)
+    setTimeout(setViewportVars, 50);
+  });
 
   /* ===== INSTALL (PWA) ===== */
   const installBtn = document.getElementById('installBtn');
@@ -183,21 +200,19 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
-    if (installBtn) installBtn.style.display = 'inline-flex';
+    installBtn.style.display = 'inline-flex';
   });
 
-  if (installBtn){
-    installBtn.addEventListener('click', async () => {
-      if (!deferredPrompt) return;
-      deferredPrompt.prompt();
-      await deferredPrompt.userChoice;
-      deferredPrompt = null;
-      installBtn.style.display = 'none';
-    });
-  }
+  installBtn.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    installBtn.style.display = 'none';
+  });
 
   window.addEventListener('appinstalled', () => {
-    if (installBtn) installBtn.style.display = 'none';
+    installBtn.style.display = 'none';
   });
 
   /* ===== SERVICE WORKER REGISTER ===== */
