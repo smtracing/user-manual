@@ -1,5 +1,5 @@
 /* SMT Racing PWA Service Worker (CDI Only) */
-const CACHE_VERSION = "smt-cdi-v1";
+const CACHE_VERSION = "smt-cdi-v2"; // naikkan versi biar HP update
 const CORE_ASSETS = [
   "/cdi-mapping.html",
   "/cdi.webmanifest",
@@ -23,11 +23,29 @@ const CORE_ASSETS = [
   "/cdi/img/bg-cdi.png",
 ];
 
+async function precacheSafe(cache) {
+  // addAll bisa gagal total kalau 1 file 404
+  // ini versi aman: coba satu-satu
+  await Promise.all(
+    CORE_ASSETS.map(async (url) => {
+      try {
+        const res = await fetch(url, { cache: "no-cache" });
+        if (res.ok) await cache.put(url, res.clone());
+      } catch (e) {
+        // abaikan error per-file
+      }
+    })
+  );
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(CORE_ASSETS))
+    (async () => {
+      const cache = await caches.open(CACHE_VERSION);
+      await precacheSafe(cache);
+      await self.skipWaiting();
+    })()
   );
-  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
@@ -35,6 +53,12 @@ self.addEventListener("activate", (event) => {
     (async () => {
       const keys = await caches.keys();
       await Promise.all(keys.map((k) => (k === CACHE_VERSION ? null : caches.delete(k))));
+
+      // optional: preload untuk navigasi
+      if (self.registration.navigationPreload) {
+        try { await self.registration.navigationPreload.enable(); } catch (e) {}
+      }
+
       await self.clients.claim();
     })()
   );
@@ -44,32 +68,50 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // hanya handle same-origin
+  // hanya same-origin
   if (url.origin !== location.origin) return;
 
-  // HTML: network-first biar update cepat
-  if (req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html")) {
+  const accept = (req.headers.get("accept") || "");
+
+  // NAV/HTML: network-first
+  if (req.mode === "navigate" || accept.includes("text/html")) {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
+      (async () => {
+        try {
+          // pakai preload kalau ada
+          const preload = await event.preloadResponse;
+          if (preload) return preload;
+
+          const res = await fetch(req);
           const copy = res.clone();
-          caches.open(CACHE_VERSION).then((c) => c.put(req, copy));
+          const cache = await caches.open(CACHE_VERSION);
+          cache.put(req, copy);
           return res;
-        })
-        .catch(() => caches.match(req).then((m) => m || caches.match("/cdi-mapping.html")))
+        } catch (e) {
+          const cached = await caches.match(req);
+          return cached || caches.match("/cdi-mapping.html");
+        }
+      })()
     );
     return;
   }
 
-  // Static: cache-first
+  // STATIC: cache-first
   event.respondWith(
-    caches.match(req).then((cached) => {
+    (async () => {
+      const cached = await caches.match(req);
       if (cached) return cached;
-      return fetch(req).then((res) => {
+
+      try {
+        const res = await fetch(req);
         const copy = res.clone();
-        caches.open(CACHE_VERSION).then((c) => c.put(req, copy));
+        const cache = await caches.open(CACHE_VERSION);
+        cache.put(req, copy);
         return res;
-      });
-    })
+      } catch (e) {
+        // fallback ringan: kalau request gambar background gagal, balikin kosong
+        return new Response("", { status: 504 });
+      }
+    })()
   );
 });
