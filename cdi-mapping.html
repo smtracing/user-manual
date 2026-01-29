@@ -18,15 +18,18 @@
   <!-- pakai style.css kamu -->
   <link rel="stylesheet" href="cdi/css/style.css" />
 
-  <!-- ===== ROTATE CSS (inline biar pasti kebaca) ===== -->
+  <!-- ===== ROTATE CSS (dibuat di TOPBAR, bukan fixed) ===== -->
   <style>
-    /* tombol rotate pojok kanan atas */
-    .rotate-btn{
-      position:fixed;
-      top:10px;
-      right:10px;
-      z-index:99999;
-      padding:10px 12px;
+    /* bungkus kanan atas untuk tombol-tombol */
+    .top-actions{
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+
+    /* tombol kecil gaya sama (rotate/install/menu) */
+    .ui-btn{
+      padding:8px 10px;
       border-radius:10px;
       border:1px solid rgba(255,255,255,.18);
       background:rgba(0,0,0,.45);
@@ -36,8 +39,18 @@
       font-size:12px;
       cursor:pointer;
       backdrop-filter: blur(8px);
+      line-height:1;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      user-select:none;
+      -webkit-tap-highlight-color: transparent;
     }
-    .rotate-btn:active{ transform:scale(.98); }
+    .ui-btn:active{ transform:scale(.98); }
+
+    /* pastikan dropdown menu tampil di atas tombol */
+    .menu-wrapper{ position:relative; }
+    .menu-dropdown{ z-index:99999; }
 
     /* root normal */
     #appRoot{ min-height:100vh; }
@@ -61,26 +74,36 @@
 
 <body>
 
-<!-- ===== ROTATE BUTTON ===== -->
-<button id="rotateBtn" class="rotate-btn" type="button" aria-label="Rotate">
-  ⟳ ROTATE
-</button>
-
 <!-- ===== SEMUA KONTEN CDI DI DALAM ROOT (BIAR BISA DIPUTAR) ===== -->
 <div id="appRoot">
 
   <header class="topbar">
     <div class="title">CDI MAPPING</div>
 
-    <!-- MENU ☰ (hanya CDI) -->
-    <div class="menu-wrapper">
-      <button class="menu-btn" onclick="toggleMenu()">☰</button>
+    <!-- kanan atas: ROTATE + (opsional INSTALL) + MENU -->
+    <div class="top-actions">
 
-      <div id="menuDropdown" class="menu-dropdown hidden">
-        <div onclick="selectCDI('basic')">CDI POWER BAND A1</div>
-        <div onclick="selectCDI('dual')">CDI POWER SMT A2</div>
-        <div onclick="selectCDI('racing')">CDI POWER SMT A3</div>
+      <!-- ROTATE (tidak menutupi menu karena sejajar di topbar) -->
+      <button id="rotateBtn" class="ui-btn" type="button" aria-label="Rotate">
+        ⟳ ROTATE
+      </button>
+
+      <!-- INSTALL (muncul otomatis kalau PWA memenuhi syarat) -->
+      <button id="installBtn" class="ui-btn" type="button" style="display:none;" aria-label="Install">
+        ⬇ INSTALL
+      </button>
+
+      <!-- MENU ☰ (hanya CDI) -->
+      <div class="menu-wrapper">
+        <button class="ui-btn" type="button" onclick="toggleMenu()" aria-label="Menu">☰</button>
+
+        <div id="menuDropdown" class="menu-dropdown hidden">
+          <div onclick="selectCDI('basic')">CDI POWER BAND A1</div>
+          <div onclick="selectCDI('dual')">CDI POWER SMT A2</div>
+          <div onclick="selectCDI('racing')">CDI POWER SMT A3</div>
+        </div>
       </div>
+
     </div>
   </header>
 
@@ -106,7 +129,7 @@
 <script src="cdi/js/cdi-dual/cdi-dual-live.js"></script>
 <script src="cdi/js/cdi-racing/cdi-racing.js"></script>
 
-<!-- ===== ROTATE JS (inline biar simpel) ===== -->
+<!-- ===== ROTATE JS ===== -->
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('rotateBtn');
@@ -127,11 +150,42 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 
-<!-- ===== SERVICE WORKER REGISTER (HANYA CDI) ===== -->
+<!-- ===== SERVICE WORKER REGISTER ===== -->
 <script>
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
 }
+</script>
+
+<!-- ===== INSTALL BUTTON (PROMPT) ===== -->
+<script>
+let deferredPrompt = null;
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  const btn = document.getElementById("installBtn");
+  if (btn) btn.style.display = "inline-flex";
+});
+
+window.addEventListener("appinstalled", () => {
+  deferredPrompt = null;
+  const btn = document.getElementById("installBtn");
+  if (btn) btn.style.display = "none";
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+  const btn = document.getElementById("installBtn");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    btn.style.display = "none";
+  });
+});
 </script>
 
 </body>
