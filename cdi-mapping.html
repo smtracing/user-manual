@@ -18,7 +18,7 @@
   <!-- style utama -->
   <link rel="stylesheet" href="cdi/css/style.css" />
 
-  <!-- ===== HEADER BUTTON BAR (override kecil biar sejajar di HP) ===== -->
+  <!-- ===== HEADER BUTTON BAR (sejajar HP/PC) + ROTATE ===== -->
   <style>
     /* topbar: paksa jadi flex rapi */
     .topbar{
@@ -34,6 +34,7 @@
       align-items:center;
       gap:10px;
       margin-left:auto;
+      flex:0 0 auto;
     }
 
     /* style tombol kecil (ROTATE/INSTALL) */
@@ -71,17 +72,22 @@
       color:#fff;
       font-size:18px;
       cursor:pointer;
+      -webkit-tap-highlight-color: transparent;
+      user-select:none;
     }
 
-    /* biar dropdown ga ketutup header */
+    /* dropdown tidak ketutup header */
     .menu-dropdown{
       top:44px !important;
       right:0 !important;
+      z-index:99999;
     }
 
     /* ===== ROTATE MODE ===== */
     #appRoot{ min-height:100vh; }
     body.rotate-mode{ overflow:hidden; }
+
+    /* jangan scale > 1 biar tombol ☰ tidak kepotong */
     body.rotate-mode #appRoot{
       position:fixed;
       top:0;
@@ -92,7 +98,7 @@
       transform: rotate(90deg) translateY(-100%) scale(1);
     }
 
-    /* HP sempit: kecilkan sedikit */
+    /* HP sempit */
     @media (max-width:420px){
       .chip-btn{ padding:0 10px; font-size:11px; height:34px; }
       .menu-wrapper .menu-btn{ height:34px; width:40px; }
@@ -155,17 +161,20 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  /* ===== ROTATE ===== */
+  /* ===== ROTATE (SESSION: hilang saat app ditutup) ===== */
   const rotateBtn = document.getElementById('rotateBtn');
-  const saved = localStorage.getItem('rotate_mode_cdi') === '1';
-  if (saved) document.body.classList.add('rotate-mode');
 
-  rotateBtn.addEventListener('click', () => {
-    document.body.classList.toggle('rotate-mode');
-    localStorage.setItem('rotate_mode_cdi',
-      document.body.classList.contains('rotate-mode') ? '1' : '0'
-    );
-  });
+  // restore hanya selama sesi masih hidup
+  const saved = sessionStorage.getItem('rotate_mode_cdi') === '1';
+  if (saved) document.body.classList.add('rotate-mode');
+  else document.body.classList.remove('rotate-mode');
+
+  if (rotateBtn){
+    rotateBtn.addEventListener('click', () => {
+      const on = document.body.classList.toggle('rotate-mode');
+      sessionStorage.setItem('rotate_mode_cdi', on ? '1' : '0');
+    });
+  }
 
   /* ===== INSTALL (PWA) ===== */
   const installBtn = document.getElementById('installBtn');
@@ -174,19 +183,21 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
-    installBtn.style.display = 'inline-flex';
+    if (installBtn) installBtn.style.display = 'inline-flex';
   });
 
-  installBtn.addEventListener('click', async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    deferredPrompt = null;
-    installBtn.style.display = 'none';
-  });
+  if (installBtn){
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      installBtn.style.display = 'none';
+    });
+  }
 
   window.addEventListener('appinstalled', () => {
-    installBtn.style.display = 'none';
+    if (installBtn) installBtn.style.display = 'none';
   });
 
   /* ===== SERVICE WORKER REGISTER ===== */
@@ -198,4 +209,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </body>
 </html>
-
