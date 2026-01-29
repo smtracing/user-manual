@@ -15,87 +15,113 @@
   <meta name="apple-mobile-web-app-title" content="CDI Map">
   <link rel="apple-touch-icon" href="/assets/icon-192.png">
 
-  <!-- pakai style.css kamu -->
+  <!-- style utama -->
   <link rel="stylesheet" href="cdi/css/style.css" />
 
-  <!-- ===== ROTATE CSS (dibuat di TOPBAR, bukan fixed) ===== -->
+  <!-- ===== HEADER BUTTON BAR (override kecil biar sejajar di HP) ===== -->
   <style>
-    /* bungkus kanan atas untuk tombol-tombol */
+    /* topbar: paksa jadi flex rapi */
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+
+    /* sisi kanan berisi tombol2 */
     .top-actions{
       display:flex;
       align-items:center;
       gap:10px;
+      margin-left:auto;
     }
 
-    /* tombol kecil gaya sama (rotate/install/menu) */
-    .ui-btn{
-      padding:8px 10px;
-      border-radius:10px;
+    /* style tombol kecil (ROTATE/INSTALL) */
+    .chip-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      height:36px;
+      padding:0 14px;
+      border-radius:12px;
       border:1px solid rgba(255,255,255,.18);
-      background:rgba(0,0,0,.45);
+      background:rgba(0,0,0,.35);
       color:#fff;
       font-weight:700;
       letter-spacing:.04em;
       font-size:12px;
       cursor:pointer;
       backdrop-filter: blur(8px);
-      line-height:1;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      user-select:none;
       -webkit-tap-highlight-color: transparent;
+      user-select:none;
+      white-space:nowrap;
     }
-    .ui-btn:active{ transform:scale(.98); }
+    .chip-btn:active{ transform:scale(.98); }
 
-    /* pastikan dropdown menu tampil di atas tombol */
+    /* tombol ☰ tetap */
     .menu-wrapper{ position:relative; }
-    .menu-dropdown{ z-index:99999; }
+    .menu-wrapper .menu-btn{
+      height:36px;
+      width:44px;
+      padding:0;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-size:18px;
+      cursor:pointer;
+    }
 
-    /* root normal */
+    /* biar dropdown ga ketutup header */
+    .menu-dropdown{
+      top:44px !important;
+      right:0 !important;
+    }
+
+    /* ===== ROTATE MODE ===== */
     #appRoot{ min-height:100vh; }
-
-    /* mode rotate */
     body.rotate-mode{ overflow:hidden; }
-
     body.rotate-mode #appRoot{
       position:fixed;
       top:0;
       left:0;
-
       width:100vh;
       height:100vw;
-
       transform-origin: top left;
-      transform: rotate(90deg) translateY(-100%) scale(1.08);
+      transform: rotate(90deg) translateY(-100%) scale(1.06);
+    }
+
+    /* HP sempit: kecilkan sedikit */
+    @media (max-width:420px){
+      .chip-btn{ padding:0 10px; font-size:11px; height:34px; }
+      .menu-wrapper .menu-btn{ height:34px; width:40px; }
     }
   </style>
 </head>
 
 <body>
 
-<!-- ===== SEMUA KONTEN CDI DI DALAM ROOT (BIAR BISA DIPUTAR) ===== -->
+<!-- semua konten CDI di root (biar bisa rotate) -->
 <div id="appRoot">
 
   <header class="topbar">
     <div class="title">CDI MAPPING</div>
 
-    <!-- kanan atas: ROTATE + (opsional INSTALL) + MENU -->
+    <!-- KANAN: ROTATE + INSTALL + ☰ -->
     <div class="top-actions">
 
-      <!-- ROTATE (tidak menutupi menu karena sejajar di topbar) -->
-      <button id="rotateBtn" class="ui-btn" type="button" aria-label="Rotate">
+      <button id="rotateBtn" class="chip-btn" type="button" aria-label="Rotate">
         ⟳ ROTATE
       </button>
 
-      <!-- INSTALL (muncul otomatis kalau PWA memenuhi syarat) -->
-      <button id="installBtn" class="ui-btn" type="button" style="display:none;" aria-label="Install">
+      <button id="installBtn" class="chip-btn" type="button" aria-label="Install" style="display:none;">
         ⬇ INSTALL
       </button>
 
-      <!-- MENU ☰ (hanya CDI) -->
+      <!-- MENU ☰ (pilih tipe CDI) -->
       <div class="menu-wrapper">
-        <button class="ui-btn" type="button" onclick="toggleMenu()" aria-label="Menu">☰</button>
+        <button class="menu-btn" type="button" onclick="toggleMenu()" aria-label="Menu">☰</button>
 
         <div id="menuDropdown" class="menu-dropdown hidden">
           <div onclick="selectCDI('basic')">CDI POWER BAND A1</div>
@@ -109,18 +135,16 @@
 
   <div class="bg-image"></div>
 
-  <!-- area render map -->
   <div id="contentArea" class="content empty">
     <div class="empty-text">Pilih tipe CDI melalui menu ☰</div>
   </div>
 
 </div><!-- /#appRoot -->
 
+<!-- app utama -->
 <script src="cdi/js/app.js"></script>
 
-<!-- =========================
-     MODUL CDI (NON-MODULE)
-========================= -->
+<!-- modul CDI -->
 <script src="cdi/js/esp/esp-api.js"></script>
 <script src="cdi/js/esp/esp-api-dual.js"></script>
 <script src="cdi/js/cdi-basic/cdi-basic.js"></script>
@@ -129,62 +153,46 @@
 <script src="cdi/js/cdi-dual/cdi-dual-live.js"></script>
 <script src="cdi/js/cdi-racing/cdi-racing.js"></script>
 
-<!-- ===== ROTATE JS ===== -->
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  const btn = document.getElementById('rotateBtn');
-
-  // restore state
+  /* ===== ROTATE ===== */
+  const rotateBtn = document.getElementById('rotateBtn');
   const saved = localStorage.getItem('rotate_mode_cdi') === '1';
   if (saved) document.body.classList.add('rotate-mode');
 
-  if (btn){
-    btn.addEventListener('click', () => {
-      document.body.classList.toggle('rotate-mode');
-      localStorage.setItem(
-        'rotate_mode_cdi',
-        document.body.classList.contains('rotate-mode') ? '1' : '0'
-      );
-    });
-  }
-});
-</script>
+  rotateBtn.addEventListener('click', () => {
+    document.body.classList.toggle('rotate-mode');
+    localStorage.setItem('rotate_mode_cdi',
+      document.body.classList.contains('rotate-mode') ? '1' : '0'
+    );
+  });
 
-<!-- ===== SERVICE WORKER REGISTER ===== -->
-<script>
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
-}
-</script>
+  /* ===== INSTALL (PWA) ===== */
+  const installBtn = document.getElementById('installBtn');
+  let deferredPrompt = null;
 
-<!-- ===== INSTALL BUTTON (PROMPT) ===== -->
-<script>
-let deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    installBtn.style.display = 'inline-flex';
+  });
 
-window.addEventListener("beforeinstallprompt", (e) => {
-  e.preventDefault();
-  deferredPrompt = e;
-  const btn = document.getElementById("installBtn");
-  if (btn) btn.style.display = "inline-flex";
-});
-
-window.addEventListener("appinstalled", () => {
-  deferredPrompt = null;
-  const btn = document.getElementById("installBtn");
-  if (btn) btn.style.display = "none";
-});
-
-document.addEventListener("DOMContentLoaded", () => {
-  const btn = document.getElementById("installBtn");
-  if (!btn) return;
-
-  btn.addEventListener("click", async () => {
+  installBtn.addEventListener('click', async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     await deferredPrompt.userChoice;
     deferredPrompt = null;
-    btn.style.display = "none";
+    installBtn.style.display = 'none';
   });
+
+  window.addEventListener('appinstalled', () => {
+    installBtn.style.display = 'none';
+  });
+
+  /* ===== SERVICE WORKER REGISTER ===== */
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
+  }
 });
 </script>
 
