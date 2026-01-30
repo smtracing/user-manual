@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>CDI MAPPING</title>
 
-  <!-- ===== PWA (HANYA CDI) ===== -->
+  <!-- ===== PWA (CDI) ===== -->
   <link rel="manifest" href="/cdi.webmanifest">
   <meta name="theme-color" content="#0e0f13">
 
-  <!-- iOS "Add to Home Screen" -->
+  <!-- iOS A2HS -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="CDI Map">
@@ -22,17 +22,12 @@
     :root{
       --topbar-h: 56px;
       --dock-h: 56px;
-      --dock-h-rot: 44px;     /* dock lebih kecil saat rotate */
       --ui-zoom: 1;
-
-      --safeT: env(safe-area-inset-top);
-      --safeB: env(safe-area-inset-bottom);
-      --safeL: env(safe-area-inset-left);
-      --safeR: env(safe-area-inset-right);
     }
 
     html, body{
       height:100%;
+      margin:0;
       overflow:hidden;
       overscroll-behavior:none;
       background:#0e0f13;
@@ -45,8 +40,6 @@
       justify-content:space-between;
       gap:10px;
       height:var(--topbar-h);
-      padding-left: calc(12px + var(--safeL));
-      padding-right: calc(12px + var(--safeR));
     }
     .top-actions{
       display:flex;
@@ -104,22 +97,6 @@
       overflow:hidden;
     }
 
-    /* ===== ROTATE MODE (TANPA GESER KIRI) ===== */
-    body.rotate-mode{ overflow:hidden; }
-    body.rotate-mode #appRoot{
-      position:fixed;
-      top:0;
-      left:0;
-
-      /* swap ukuran supaya pas landscape */
-      width:100vh;
-      height:100vw;
-
-      transform-origin: top left;
-      /* PENTING: NO translateX -> biar tidak “kebablasan” */
-      transform: rotate(90deg) translateY(-100%);
-    }
-
     /* ===== WORKSPACE 1 layar ===== */
     #workspace{
       position:absolute;
@@ -130,12 +107,7 @@
       overflow:auto;
       -webkit-overflow-scrolling:touch;
       overscroll-behavior:contain;
-      padding-bottom: calc(6px + var(--safeB));
     }
-    body.rotate-mode #workspace{
-      bottom:var(--dock-h-rot);
-    }
-
     #workspace::-webkit-scrollbar{ display:none; }
 
     /* area yang di-zoom */
@@ -153,7 +125,7 @@
     .zoom-dock{
       position:absolute;
       left:50%;
-      bottom: calc(10px + var(--safeB));
+      bottom:10px;
       transform:translateX(-50%);
       z-index:999998;
       height:46px;
@@ -168,7 +140,6 @@
       -webkit-tap-highlight-color: transparent;
       user-select:none;
     }
-
     .zoom-dock .zbtn{
       height:34px;
       min-width:40px;
@@ -190,29 +161,6 @@
       text-align:right;
     }
 
-    /* rotate: dock pindah ke tepi kiri bawah + lebih kecil (biar mapping lega) */
-    body.rotate-mode .zoom-dock{
-      left: calc(12px + var(--safeL));
-      bottom: calc(10px + var(--safeB));
-      transform:none;
-
-      height:38px;
-      padding:6px 8px;
-      border-radius:12px;
-      gap:8px;
-    }
-    body.rotate-mode .zoom-dock .zbtn{
-      height:28px;
-      min-width:34px;
-      padding:0 8px;
-      border-radius:10px;
-    }
-    body.rotate-mode .zoom-dock .zrange{ width:90px; }
-    body.rotate-mode .zoom-dock .zlabel{
-      min-width:38px;
-      font-size:11px;
-    }
-
     /* ===== TOOLTIP fixed ===== */
     .hint{
       position:fixed;
@@ -230,19 +178,8 @@
       pointer-events:none;
     }
     .hint.show{ opacity:1; transform: translateY(0); }
-    .hint-right{
-      right: calc(10px + var(--safeR));
-      top:50%;
-      transform:translateY(-50%);
-    }
-    .hint-bottom{
-      left:50%;
-      bottom:calc(var(--dock-h) + 12px + var(--safeB));
-      transform:translateX(-50%);
-    }
-    body.rotate-mode .hint-bottom{
-      bottom:calc(var(--dock-h-rot) + 12px + var(--safeB));
-    }
+    .hint-right{ right:10px; top:50%; transform:translateY(-50%); }
+    .hint-bottom{ left:50%; bottom:calc(var(--dock-h) + 12px); transform:translateX(-50%); }
 
     @media (max-width:420px){
       :root{ --dock-h: 60px; }
@@ -251,6 +188,10 @@
       .zoom-dock .zrange{ width:110px; }
       .zoom-dock .zlabel{ min-width:40px; }
     }
+
+    /* ===== KUNCI INTERAKSI CANVAS DI HP (BIAR DRAG TITIK JALAN) ===== */
+    /* kalau ID canvas kamu berbeda, ini tidak merusak apa-apa; yang utama tetap di JS drag */
+    #curveCanvas{ touch-action:none; }
   </style>
 </head>
 
@@ -262,7 +203,7 @@
     <div class="title">CDI MAPPING</div>
 
     <div class="top-actions">
-      <button id="rotateBtn" class="chip-btn" type="button">⟳ ROTATE</button>
+      <!-- ROTATE dihapus (LANDSCAPE pakai rotate HP saja) -->
 
       <button id="installBtn" class="chip-btn" type="button" style="display:none;">⬇ INSTALL</button>
 
@@ -279,7 +220,7 @@
 
   <div class="bg-image"></div>
 
-  <div id="hintRight" class="hint hint-right">Geser kiri/kanan: tarik di area map</div>
+  <div id="hintRight" class="hint hint-right">Drag titik: sentuh & tarik di titik hijau</div>
   <div id="hintBottom" class="hint hint-bottom">Zoom pakai tab bawah</div>
 
   <div id="workspace">
@@ -299,26 +240,25 @@
 
 </div>
 
+<!-- app utama -->
 <script src="cdi/js/app.js"></script>
 
+<!-- modul CDI -->
 <script src="cdi/js/esp/esp-api.js"></script>
 <script src="cdi/js/esp/esp-api-dual.js"></script>
+
 <script src="cdi/js/cdi-basic/cdi-basic.js"></script>
 <script src="cdi/js/cdi-basic/cdi-basic-live.js"></script>
+
 <script src="cdi/js/cdi-dual/cdi-dual.js"></script>
 <script src="cdi/js/cdi-dual/cdi-dual-live.js"></script>
+
 <script src="cdi/js/cdi-racing/cdi-racing.js"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 
-  // ROTATE (tidak disimpan)
-  document.getElementById('rotateBtn').addEventListener('click', () => {
-    document.body.classList.toggle('rotate-mode');
-    showHints();
-  });
-
-  // ZOOM UI (dock bawah)
+  // ===== ZOOM UI (hanya tampilan workspace) =====
   const zoomRange = document.getElementById('zoomRange');
   const zoomInBtn = document.getElementById('zoomInBtn');
   const zoomOutBtn = document.getElementById('zoomOutBtn');
@@ -337,11 +277,10 @@ document.addEventListener('DOMContentLoaded', () => {
   zoomInBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) + 5));
   zoomOutBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) - 5));
 
-  // Tooltip
+  // ===== TOOLTIP =====
   const hintRight = document.getElementById('hintRight');
   const hintBottom = document.getElementById('hintBottom');
   let hintTimer = null;
-
   function showHints(){
     clearTimeout(hintTimer);
     hintRight.classList.add('show');
@@ -353,7 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   showHints();
 
-  // INSTALL (PWA)
+  // ===== INSTALL (PWA) =====
   const installBtn = document.getElementById('installBtn');
   let deferredPrompt = null;
 
@@ -375,7 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
     installBtn.style.display = 'none';
   });
 
-  // SW
+  // ===== SW =====
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
   }
