@@ -1,0 +1,136 @@
+<!-- dyno-road.html (TICK & RPM START/END DIHILANGKAN, SEMUA DIKUNCI DI JS) -->
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DYNO ROAD</title>
+  <link rel="stylesheet" href="dyno/css/style.css"/>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="title">DYNO ROAD</div>
+  <div class="subtitle">ARM → RUN → AUTO STOP (TARGET JARAK)</div>
+</header>
+
+<main class="page">
+  <section class="card">
+    <div class="card-head">
+      <div class="h1">DYNO ROAD WWW.SMTRACING.COM</div>
+    </div>
+
+    <div class="controls">
+      <div class="grid">
+        <div class="field">
+          <label>JARAK (m)</label>
+          <input id="d_targetM" type="number" step="1" value="200"/>
+        </div>
+
+        <div class="field">
+          <label>LINGKAR RODA (m)</label>
+          <input id="d_circM" type="number" step="0.01" value="1.85"/>
+        </div>
+
+        <div class="field">
+          <label>BERAT TOTAL (kg)</label>
+          <input id="d_weightKg" type="number" step="1" value="120"/>
+        </div>
+
+        <div class="field">
+          <label>PPR DEPAN</label>
+          <input id="d_pprFront" type="number" step="1" value="1"/>
+        </div>
+
+        <div class="field">
+          <label>PPR BELAKANG</label>
+          <input id="d_pprRear" type="number" step="1" value="1"/>
+        </div>
+
+<!-- TICK DIHAPUS -->
+        <!-- RPM START/END DIHAPUS (RPM START=2000, RPM MAX=20000 dikunci di JS) -->
+      </div>
+
+      <div class="btns">
+        <button class="btn gray" onclick="DYNO_arm()">ARM</button>
+        <button class="btn green" onclick="DYNO_run()">RUN</button>
+        <button class="btn orange" onclick="DYNO_stop()">STOP</button>
+        <button class="btn blue" onclick="DYNO_saveCSV()">SAVE</button>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <div id="d_status" class="status">READY</div>
+    </div>
+
+    <div class="layout layout-wide">
+      <div class="graph-wrap graph-wrap-wide">
+        <canvas id="dynoCanvas"></canvas>
+      </div>
+
+      <aside class="side side-wide">
+        <div class="box">
+          <div class="box-title">LIVE</div>
+          <div class="kv">
+            <div class="k">STATE</div><div class="v" id="d_state">READY</div>
+            <div class="k">TIME (s)</div><div class="v" id="d_time">0.00</div>
+            <div class="k">DIST (m)</div><div class="v" id="d_dist">0.0</div>
+            <div class="k">SPEED (km/h)</div><div class="v" id="d_speedLive">0.0</div>
+            <div class="k">RPM</div><div class="v" id="d_rpmLive">0</div>
+          </div>
+        </div>
+
+        <div class="box">
+          <div class="box-title">POWER</div>
+          <div class="kv">
+            <div class="k">TQ (Nm)</div><div class="v tq" id="d_tqLive">0.0</div>
+            <div class="k">HP</div><div class="v hp" id="d_hpLive">0.0</div>
+            <div class="k">IGN (°)</div><div class="v ign" id="d_ignLive">0.0</div>
+            <div class="k">MAX TQ</div><div class="v tq" id="d_tqMax">0.0</div>
+            <div class="k">MAX HP</div><div class="v hp" id="d_hpMax">0.0</div>
+          </div>
+        </div>
+
+        <div class="box">
+          <div class="box-title">INFO</div>
+          <div class="kv">
+            <div class="k">Target (m)</div><div class="v" id="d_targetShow">200</div>
+            <div class="k">Circ (m)</div><div class="v" id="d_circShow">1.85</div>
+            <div class="k">Weight (kg)</div><div class="v" id="d_weightShow">120</div>
+            <div class="k">PPR Front</div><div class="v" id="d_pprFrontShow">1</div>
+            <div class="k">PPR Rear</div><div class="v" id="d_pprRearShow">1</div>
+            <div class="k">Log</div><div class="v" id="d_logInfo">0 rows</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="table-wrap table-wide">
+      <div class="table-title">DATA LOG</div>
+      <div class="table-scroll">
+        <table class="log">
+          <thead>
+            <tr>
+              <th style="text-align:left">t(s)</th>
+              <th>rpm</th>
+              <th>tq(Nm)</th>
+              <th>hp</th>
+              <th>ign(°)</th>
+              <th>afr</th>
+              <th>dist(m)</th>
+
+            </tr>
+          </thead>
+          <tbody id="d_tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<script src="dyno/js/esp-api-dual.js"></script>
+<script src="dyno/js/dyno-road.js"></script>
+<script src="dyno/js/app.js"></script>
+</body>
+</html>
