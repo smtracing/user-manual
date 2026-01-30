@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>CDI MAPPING</title>
+
+  <!-- ===== PWA (CDI) ===== -->
+  <link rel="manifest" href="/cdi.webmanifest?v=3">
+  <meta name="theme-color" content="#0e0f13">
+
+  <!-- iOS A2HS -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CDI Map">
+  <link rel="apple-touch-icon" href="/assets/icon-192.png">
+
+  <link rel="stylesheet" href="cdi/css/style.css" />
+
+  <style>
+    :root{
+      --topbar-h: 56px;
+      --dock-h: 56px;
+      --ui-zoom: 1;
+      --vh: 1vh;
+    }
+
+    html, body{
+      width:100%;
+      height: calc(var(--vh) * 100);
+      margin:0;
+      overflow:hidden;
+      overscroll-behavior:none;
+      background:#0e0f13;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      height:var(--topbar-h);
+    }
+    .top-actions{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-left:auto;
+    }
+
+    .chip-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      height:36px;
+      padding:0 14px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-weight:700;
+      letter-spacing:.04em;
+      font-size:12px;
+      cursor:pointer;
+      backdrop-filter: blur(8px);
+      -webkit-tap-highlight-color: transparent;
+      user-select:none;
+      white-space:nowrap;
+    }
+    .chip-btn:active{ transform:scale(.98); }
+
+    .menu-wrapper{ position:relative; }
+    .menu-wrapper .menu-btn{
+      height:36px;
+      width:44px;
+      padding:0;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-size:18px;
+      cursor:pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .menu-dropdown{
+      top:44px !important;
+      right:0 !important;
+      z-index:999999;
+    }
+
+    #appRoot{
+      height: calc(var(--vh) * 100);
+      width:100vw;
+      position:relative;
+      overflow:hidden;
+    }
+
+    .bg-image{ position:fixed; inset:0; }
+
+    /* ======================================================
+       FIX: padding bawah ikut ZOOM
+       - zoom out -> padding mengecil -> mapping makin lega
+    ====================================================== */
+    #workspace{
+      position:absolute;
+      top:var(--topbar-h);
+      left:0;
+      right:0;
+      bottom:0;
+
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior:contain;
+
+      /* ✅ kunci: padding ikut zoom */
+      padding-bottom: calc((var(--dock-h) + env(safe-area-inset-bottom) + 12px) * var(--ui-zoom));
+      box-sizing:border-box;
+    }
+    #workspace::-webkit-scrollbar{ display:none; }
+
+    #workspaceInner{
+      transform-origin: top left;
+      transform: scale(var(--ui-zoom));
+      width: calc(100% / var(--ui-zoom));
+      min-height: 100%;
+    }
+
+    /* Override style.css kalau ada content yang maksa 100vh */
+    #workspace #contentArea.content{
+      height:auto !important;
+      min-height:100% !important;
+      overflow:visible !important;
+    }
+    #workspace .content{
+      overflow:visible !important;
+    }
+
+    /* ===== DOCK ZOOM bawah ===== */
+    .zoom-dock{
+      position:fixed;
+      left:50%;
+      bottom: calc(10px + env(safe-area-inset-bottom));
+      transform:translateX(-50%);
+      z-index:999998;
+
+      height:46px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:8px 10px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.16);
+      background:rgba(0,0,0,.40);
+      backdrop-filter: blur(10px);
+      -webkit-tap-highlight-color: transparent;
+      user-select:none;
+      touch-action: manipulation;
+    }
+    .zoom-dock .zbtn{
+      height:34px;
+      min-width:40px;
+      padding:0 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-weight:900;
+      cursor:pointer;
+    }
+    .zoom-dock .zbtn:active{ transform:scale(.98); }
+    .zoom-dock .zrange{ width:140px; accent-color:#ffffff; }
+    .zoom-dock .zlabel{
+      font-size:12px;
+      color:#fff;
+      opacity:.85;
+      min-width:44px;
+      text-align:right;
+    }
+
+    /* ===== TOOLTIP fixed ===== */
+    .hint{
+      position:fixed;
+      z-index:999997;
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-size:12px;
+      backdrop-filter: blur(10px);
+      opacity:0;
+      transform: translateY(4px);
+      transition: .25s ease;
+      pointer-events:none;
+    }
+    .hint.show{ opacity:1; transform: translateY(0); }
+    .hint-right{ right:10px; top:50%; transform:translateY(-50%); }
+    .hint-bottom{
+      left:50%;
+      bottom: calc((var(--dock-h) + env(safe-area-inset-bottom) + 12px) * var(--ui-zoom));
+      transform:translateX(-50%);
+    }
+
+    @media (max-width:420px){
+      :root{ --dock-h: 60px; }
+      .chip-btn{ padding:0 10px; font-size:11px; height:34px; }
+      .menu-wrapper .menu-btn{ height:34px; width:40px; }
+      .zoom-dock .zrange{ width:110px; }
+      .zoom-dock .zlabel{ min-width:40px; }
+    }
+
+    /* Landscape: dock lebih tipis biar mapping tambah lega */
+    @media (orientation: landscape){
+      :root{ --dock-h: 46px; }
+      .zoom-dock{
+        height:40px;
+        padding:6px 10px;
+        bottom: calc(6px + env(safe-area-inset-bottom));
+      }
+      .zoom-dock .zbtn{ height:30px; min-width:38px; }
+      .zoom-dock .zlabel{ font-size:11px; }
+    }
+
+    #curveCanvas{ touch-action:none; }
+  </style>
+</head>
+
+<body>
+<div id="appRoot">
+
+  <header class="topbar">
+    <div class="title">CDI MAPPING</div>
+
+    <div class="top-actions">
+      <button id="installBtn" class="chip-btn" type="button" style="display:none;">⬇ INSTALL</button>
+
+      <div class="menu-wrapper">
+        <button class="menu-btn" type="button" onclick="toggleMenu()" aria-label="Menu">☰</button>
+        <div id="menuDropdown" class="menu-dropdown hidden">
+          <div onclick="selectCDI('basic')">CDI POWER BAND A1</div>
+          <div onclick="selectCDI('dual')">CDI POWER SMT A2</div>
+          <div onclick="selectCDI('racing')">CDI POWER SMT A3</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="bg-image"></div>
+
+  <div id="hintRight" class="hint hint-right">Drag titik: sentuh & tarik di titik hijau</div>
+  <div id="hintBottom" class="hint hint-bottom">Zoom pakai tab bawah</div>
+
+  <div id="workspace">
+    <div id="workspaceInner">
+      <div id="contentArea" class="content empty">
+        <div class="empty-text">Pilih tipe CDI melalui menu ☰</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="zoom-dock" id="zoomDock">
+    <button class="zbtn" id="zoomOutBtn" type="button">−</button>
+    <!-- ✅ min jadi 40% (0% bikin konten hilang total) -->
+    <input class="zrange" id="zoomRange" type="range" min="40" max="160" value="100">
+    <button class="zbtn" id="zoomInBtn" type="button">+</button>
+    <div class="zlabel" id="zoomLabel">100%</div>
+  </div>
+
+</div>
+
+<script src="cdi/js/app.js"></script>
+<script src="cdi/js/esp/esp-api.js"></script>
+<script src="cdi/js/esp/esp-api-dual.js"></script>
+<script src="cdi/js/cdi-basic/cdi-basic.js"></script>
+<script src="cdi/js/cdi-basic/cdi-basic-live.js"></script>
+<script src="cdi/js/cdi-dual/cdi-dual.js"></script>
+<script src="cdi/js/cdi-dual/cdi-dual-live.js"></script>
+<script src="cdi/js/cdi-racing/cdi-racing.js"></script>
+
+<script>
+/* ===== FIX VH untuk HP (rotate + address bar) ===== */
+(function(){
+  function getH(){
+    if (window.visualViewport && typeof window.visualViewport.height === "number"){
+      return window.visualViewport.height;
+    }
+    return window.innerHeight;
+  }
+  function setVH(){
+    const h = getH();
+    document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
+  }
+  setVH();
+  window.addEventListener('resize', setVH, {passive:true});
+  if (window.visualViewport){
+    window.visualViewport.addEventListener('resize', setVH, {passive:true});
+  }
+  window.addEventListener('orientationchange', () => {
+    setTimeout(setVH, 250);
+    setTimeout(setVH, 600);
+  }, {passive:true});
+})();
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+  const zoomRange = document.getElementById('zoomRange');
+  const zoomInBtn = document.getElementById('zoomInBtn');
+  const zoomOutBtn = document.getElementById('zoomOutBtn');
+  const zoomLabel = document.getElementById('zoomLabel');
+
+  function setZoomPct(pct){
+    const clamped = Math.max(40, Math.min(160, pct));
+    const z = clamped / 100;
+    document.documentElement.style.setProperty('--ui-zoom', z.toFixed(3));
+    zoomRange.value = String(clamped);
+    zoomLabel.textContent = clamped + "%";
+  }
+  setZoomPct(100);
+
+  zoomRange.addEventListener('input', () => setZoomPct(parseInt(zoomRange.value,10) || 100));
+  zoomInBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) + 5));
+  zoomOutBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) - 5));
+
+  const hintRight = document.getElementById('hintRight');
+  const hintBottom = document.getElementById('hintBottom');
+  let hintTimer = null;
+  function showHints(){
+    clearTimeout(hintTimer);
+    hintRight.classList.add('show');
+    hintBottom.classList.add('show');
+    hintTimer = setTimeout(() => {
+      hintRight.classList.remove('show');
+      hintBottom.classList.remove('show');
+    }, 3500);
+  }
+  showHints();
+
+  const installBtn = document.getElementById('installBtn');
+  let deferredPrompt = null;
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    installBtn.style.display = 'inline-flex';
+  });
+
+  installBtn.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    installBtn.style.display = 'none';
+  });
+
+  window.addEventListener('appinstalled', () => {
+    installBtn.style.display = 'none';
+  });
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
+  }
+});
+</script>
+
+</body>
+</html>
