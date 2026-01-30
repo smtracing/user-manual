@@ -1,6 +1,6 @@
 {
   "name": "SMT Racing - DYNO ROAD",
-  "short_name": "DYNO",
+  "short_name": "DYNOTES",
   "start_url": "/dyno/dyno-road.html",
   "scope": "/dyno/",
   "display": "standalone",
@@ -11,5 +11,6 @@
     { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }
+
 
 
