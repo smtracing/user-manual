@@ -22,8 +22,13 @@
     :root{
       --topbar-h: 56px;
       --dock-h: 56px;
+      --dock-h-rot: 44px;     /* dock lebih kecil saat rotate */
       --ui-zoom: 1;
-      --fit-scale: 0.92;
+
+      --safeT: env(safe-area-inset-top);
+      --safeB: env(safe-area-inset-bottom);
+      --safeL: env(safe-area-inset-left);
+      --safeR: env(safe-area-inset-right);
     }
 
     html, body{
@@ -40,6 +45,8 @@
       justify-content:space-between;
       gap:10px;
       height:var(--topbar-h);
+      padding-left: calc(12px + var(--safeL));
+      padding-right: calc(12px + var(--safeR));
     }
     .top-actions{
       display:flex;
@@ -97,20 +104,20 @@
       overflow:hidden;
     }
 
-    /* ===== ROTATE MODE ===== */
+    /* ===== ROTATE MODE (TANPA GESER KIRI) ===== */
     body.rotate-mode{ overflow:hidden; }
     body.rotate-mode #appRoot{
       position:fixed;
       top:0;
       left:0;
+
+      /* swap ukuran supaya pas landscape */
       width:100vh;
       height:100vw;
+
       transform-origin: top left;
-      transform:
-        rotate(90deg)
-        translateY(-100%)
-        scale(var(--fit-scale))
-        translateX(-6%);
+      /* PENTING: NO translateX -> biar tidak “kebablasan” */
+      transform: rotate(90deg) translateY(-100%);
     }
 
     /* ===== WORKSPACE 1 layar ===== */
@@ -123,8 +130,12 @@
       overflow:auto;
       -webkit-overflow-scrolling:touch;
       overscroll-behavior:contain;
-      touch-action: pan-x pan-y; /* scroll tetap di workspace */
+      padding-bottom: calc(6px + var(--safeB));
     }
+    body.rotate-mode #workspace{
+      bottom:var(--dock-h-rot);
+    }
+
     #workspace::-webkit-scrollbar{ display:none; }
 
     /* area yang di-zoom */
@@ -142,7 +153,7 @@
     .zoom-dock{
       position:absolute;
       left:50%;
-      bottom:10px;
+      bottom: calc(10px + var(--safeB));
       transform:translateX(-50%);
       z-index:999998;
       height:46px;
@@ -157,6 +168,7 @@
       -webkit-tap-highlight-color: transparent;
       user-select:none;
     }
+
     .zoom-dock .zbtn{
       height:34px;
       min-width:40px;
@@ -178,6 +190,29 @@
       text-align:right;
     }
 
+    /* rotate: dock pindah ke tepi kiri bawah + lebih kecil (biar mapping lega) */
+    body.rotate-mode .zoom-dock{
+      left: calc(12px + var(--safeL));
+      bottom: calc(10px + var(--safeB));
+      transform:none;
+
+      height:38px;
+      padding:6px 8px;
+      border-radius:12px;
+      gap:8px;
+    }
+    body.rotate-mode .zoom-dock .zbtn{
+      height:28px;
+      min-width:34px;
+      padding:0 8px;
+      border-radius:10px;
+    }
+    body.rotate-mode .zoom-dock .zrange{ width:90px; }
+    body.rotate-mode .zoom-dock .zlabel{
+      min-width:38px;
+      font-size:11px;
+    }
+
     /* ===== TOOLTIP fixed ===== */
     .hint{
       position:fixed;
@@ -195,27 +230,26 @@
       pointer-events:none;
     }
     .hint.show{ opacity:1; transform: translateY(0); }
-    .hint-right{ right:10px; top:50%; transform:translateY(-50%); }
-    .hint-bottom{ left:50%; bottom:calc(var(--dock-h) + 12px); transform:translateX(-50%); }
+    .hint-right{
+      right: calc(10px + var(--safeR));
+      top:50%;
+      transform:translateY(-50%);
+    }
+    .hint-bottom{
+      left:50%;
+      bottom:calc(var(--dock-h) + 12px + var(--safeB));
+      transform:translateX(-50%);
+    }
+    body.rotate-mode .hint-bottom{
+      bottom:calc(var(--dock-h-rot) + 12px + var(--safeB));
+    }
 
     @media (max-width:420px){
-      :root{ --dock-h: 60px; --fit-scale: 0.90; }
+      :root{ --dock-h: 60px; }
       .chip-btn{ padding:0 10px; font-size:11px; height:34px; }
       .menu-wrapper .menu-btn{ height:34px; width:40px; }
       .zoom-dock .zrange{ width:110px; }
       .zoom-dock .zlabel{ min-width:40px; }
-    }
-
-    /* ============================================================
-       PATCH MOBILE MAPPING:
-       - Kalau sentuh CANVAS/SVG di area map, JANGAN scroll halaman
-       - Biar drag titik jalan seperti mouse
-    ============================================================ */
-    #contentArea canvas,
-    #contentArea svg{
-      touch-action: none;                 /* kunci: 1 jari = drag, bukan scroll */
-      -webkit-user-select: none;
-      user-select: none;
     }
   </style>
 </head>
@@ -229,6 +263,7 @@
 
     <div class="top-actions">
       <button id="rotateBtn" class="chip-btn" type="button">⟳ ROTATE</button>
+
       <button id="installBtn" class="chip-btn" type="button" style="display:none;">⬇ INSTALL</button>
 
       <div class="menu-wrapper">
@@ -281,11 +316,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('rotateBtn').addEventListener('click', () => {
     document.body.classList.toggle('rotate-mode');
     showHints();
-    const ws = document.getElementById('workspace');
-    if (ws){ ws.scrollTop = 0; ws.scrollLeft = 0; }
   });
 
-  // ZOOM
+  // ZOOM UI (dock bawah)
   const zoomRange = document.getElementById('zoomRange');
   const zoomInBtn = document.getElementById('zoomInBtn');
   const zoomOutBtn = document.getElementById('zoomOutBtn');
@@ -346,73 +379,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
   }
-
-  /* ============================================================
-     PATCH: TOUCH -> MOUSE (agar titik kurva bisa di-drag di HP)
-     - Tidak ubah file cdi-basic.js/cdi-dual.js
-     - Cukup bikin touch mengirim event mouse ke canvas/svg
-  ============================================================ */
-  const contentArea = document.getElementById('contentArea');
-
-  function dispatchMouse(el, type, x, y){
-    const ev = new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX: x,
-      clientY: y,
-      buttons: 1
-    });
-    el.dispatchEvent(ev);
-  }
-
-  function bindTouchToMouse(el){
-    if (!el || el.dataset.touchMouseBound === '1') return;
-    el.dataset.touchMouseBound = '1';
-
-    // penting: passive:false supaya preventDefault jalan (biar halaman ga kebawa)
-    el.addEventListener('touchstart', (e) => {
-      if (!e.touches || e.touches.length !== 1) return; // 1 jari saja
-      const t = e.touches[0];
-      e.preventDefault();
-      dispatchMouse(el, 'mousemove', t.clientX, t.clientY);
-      dispatchMouse(el, 'mousedown', t.clientX, t.clientY);
-    }, { passive:false });
-
-    el.addEventListener('touchmove', (e) => {
-      if (!e.touches || e.touches.length !== 1) return;
-      const t = e.touches[0];
-      e.preventDefault();
-      dispatchMouse(el, 'mousemove', t.clientX, t.clientY);
-    }, { passive:false });
-
-    const end = (e) => {
-      // gunakan changedTouches agar koordinat terakhir kebaca
-      const t = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : null;
-      if (t){
-        e.preventDefault();
-        dispatchMouse(el, 'mouseup', t.clientX, t.clientY);
-      } else {
-        // fallback
-        dispatchMouse(el, 'mouseup', 0, 0);
-      }
-    };
-    el.addEventListener('touchend', end, { passive:false });
-    el.addEventListener('touchcancel', end, { passive:false });
-  }
-
-  function scanAndBind(){
-    // target utama: canvas / svg yang biasanya dipakai gambar grafik
-    const targets = contentArea.querySelectorAll('canvas, svg');
-    targets.forEach(bindTouchToMouse);
-  }
-
-  // initial
-  scanAndBind();
-
-  // kalau user ganti tipe CDI, DOM-nya berubah -> auto bind lagi
-  const mo = new MutationObserver(() => scanAndBind());
-  mo.observe(contentArea, { childList:true, subtree:true });
-
 });
 </script>
 
