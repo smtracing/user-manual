@@ -1,136 +1,427 @@
-<!-- dyno-road.html (TICK & RPM START/END DIHILANGKAN, SEMUA DIKUNCI DI JS) -->
+<!-- dyno-road.html (ZOOM + PWA INSTALL + VH FIX + DOCK STABIL) -->
 <!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>DYNO ROAD</title>
+
+  <!-- ===== PWA ===== -->
+  <link rel="manifest" href="/dyno.webmanifest?v=1">
+  <meta name="theme-color" content="#0e0f13">
+
+  <!-- iOS A2HS -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DYNO ROAD">
+  <link rel="apple-touch-icon" href="/assets/icon-192.png">
+
+  <!-- style utama -->
   <link rel="stylesheet" href="dyno/css/style.css"/>
+
+  <style>
+    :root{
+      --topbar-h: 56px;
+      --dock-h: 56px;          /* ruang aman untuk dock */
+      --ui-zoom: 1;            /* zoom konten */
+      --vh: 1vh;               /* di-set JS (visualViewport) */
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    /* Root layar */
+    html, body{
+      width:100%;
+      height: calc(var(--vh) * 100);
+      margin:0;
+      overflow:hidden;
+      overscroll-behavior:none;
+      background:#0e0f13;
+    }
+
+    /* Bungkus 1 layar */
+    #appRoot{
+      height: calc(var(--vh) * 100);
+      width:100vw;
+      position:relative;
+      overflow:hidden;
+    }
+
+    /* Topbar tetap */
+    .topbar{
+      position:absolute;
+      top:0; left:0; right:0;
+      height:var(--topbar-h);
+      z-index:1000;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      padding:6px 14px;
+      background:rgba(14,15,19,.92);
+      border-bottom:1px solid rgba(255,255,255,.10);
+      backdrop-filter: blur(8px);
+    }
+    .topbar .title{ font-weight:900; letter-spacing:.06em; }
+    .topbar .subtitle{ opacity:.75; font-size:12px; margin-top:2px; }
+
+    /* Tombol install di kanan atas */
+    .top-actions{
+      position:absolute;
+      right:10px;
+      top:50%;
+      transform:translateY(-50%);
+      display:flex;
+      align-items:center;
+      gap:10px;
+      z-index:1001;
+    }
+    .chip-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      height:34px;
+      padding:0 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-weight:800;
+      letter-spacing:.04em;
+      font-size:12px;
+      cursor:pointer;
+      backdrop-filter: blur(8px);
+      -webkit-tap-highlight-color: transparent;
+      user-select:none;
+      white-space:nowrap;
+    }
+    .chip-btn:active{ transform:translateY(-50%) scale(.98); }
+
+    /* Workspace scrollable (konten) */
+    #workspace{
+      position:absolute;
+      top:var(--topbar-h);
+      left:0;
+      right:0;
+      bottom: calc(var(--dock-h) + var(--safe-bottom));
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior:contain;
+
+      /* penting: jangan biarkan padding/height berubah saat zoom */
+      padding: 14px 12px 18px 12px;
+      box-sizing:border-box;
+    }
+    #workspace::-webkit-scrollbar{ display:none; }
+
+    /* Inner yang di-zoom: supaya DOCK tidak ikut terdorong */
+    #workspaceInner{
+      transform-origin: top left;
+      transform: scale(var(--ui-zoom));
+      width: calc(100% / var(--ui-zoom));
+      min-height: calc(100% / var(--ui-zoom));
+    }
+
+    /* Dock zoom FIXED (bukan absolute) -> tidak akan “naik ke tengah” saat zoom out */
+    .zoom-dock{
+      position:fixed;
+      left:50%;
+      bottom: calc(10px + var(--safe-bottom));
+      transform:translateX(-50%);
+      z-index:2000;
+
+      height:44px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:8px 10px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.16);
+      background:rgba(0,0,0,.40);
+      backdrop-filter: blur(10px);
+      -webkit-tap-highlight-color: transparent;
+      user-select:none;
+      max-width: calc(100vw - 16px);
+      box-sizing:border-box;
+    }
+    .zoom-dock .zbtn{
+      height:32px;
+      min-width:40px;
+      padding:0 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-weight:900;
+      cursor:pointer;
+    }
+    .zoom-dock .zbtn:active{ transform:scale(.98); }
+    .zoom-dock .zrange{
+      width:140px;
+      accent-color:#ffffff;
+    }
+    .zoom-dock .zlabel{
+      font-size:12px;
+      color:#fff;
+      opacity:.85;
+      min-width:44px;
+      text-align:right;
+    }
+
+    /* kecilkan dock saat landscape biar area mapping lega */
+    @media (orientation: landscape){
+      :root{ --dock-h: 48px; }
+      .zoom-dock{ height:40px; padding:6px 8px; }
+      .zoom-dock .zbtn{ height:30px; min-width:38px; }
+      .zoom-dock .zrange{ width:120px; }
+    }
+
+    @media (max-width:420px){
+      :root{ --dock-h: 56px; }
+      .zoom-dock .zrange{ width:110px; }
+      .zoom-dock .zlabel{ min-width:40px; }
+    }
+
+    /* OPTIONAL: kunci gesture canvas dyno kalau butuh (tidak ganggu scroll page) */
+    /* #dynoCanvas{ touch-action:none; } */
+  </style>
 </head>
+
 <body>
+<div id="appRoot">
 
-<header class="topbar">
-  <div class="title">DYNO ROAD</div>
-  <div class="subtitle">ARM → RUN → AUTO STOP (TARGET JARAK)</div>
-</header>
+  <header class="topbar">
+    <div class="title">DYNO ROAD</div>
+    <div class="subtitle">ARM → RUN → AUTO STOP (TARGET JARAK)</div>
 
-<main class="page">
-  <section class="card">
-    <div class="card-head">
-      <div class="h1">DYNO ROAD WWW.SMTRACING.COM</div>
+    <div class="top-actions">
+      <button id="installBtn" class="chip-btn" type="button" style="display:none;">⬇ INSTALL</button>
     </div>
+  </header>
 
-    <div class="controls">
-      <div class="grid">
-        <div class="field">
-          <label>JARAK (m)</label>
-          <input id="d_targetM" type="number" step="1" value="200"/>
-        </div>
+  <div id="workspace">
+    <div id="workspaceInner">
 
-        <div class="field">
-          <label>LINGKAR RODA (m)</label>
-          <input id="d_circM" type="number" step="0.01" value="1.85"/>
-        </div>
-
-        <div class="field">
-          <label>BERAT TOTAL (kg)</label>
-          <input id="d_weightKg" type="number" step="1" value="120"/>
-        </div>
-
-        <div class="field">
-          <label>PPR DEPAN</label>
-          <input id="d_pprFront" type="number" step="1" value="1"/>
-        </div>
-
-        <div class="field">
-          <label>PPR BELAKANG</label>
-          <input id="d_pprRear" type="number" step="1" value="1"/>
-        </div>
-
-<!-- TICK DIHAPUS -->
-        <!-- RPM START/END DIHAPUS (RPM START=2000, RPM MAX=20000 dikunci di JS) -->
-      </div>
-
-      <div class="btns">
-        <button class="btn gray" onclick="DYNO_arm()">ARM</button>
-        <button class="btn green" onclick="DYNO_run()">RUN</button>
-        <button class="btn orange" onclick="DYNO_stop()">STOP</button>
-        <button class="btn blue" onclick="DYNO_saveCSV()">SAVE</button>
-      </div>
-    </div>
-
-    <div class="statusbar">
-      <div id="d_status" class="status">READY</div>
-    </div>
-
-    <div class="layout layout-wide">
-      <div class="graph-wrap graph-wrap-wide">
-        <canvas id="dynoCanvas"></canvas>
-      </div>
-
-      <aside class="side side-wide">
-        <div class="box">
-          <div class="box-title">LIVE</div>
-          <div class="kv">
-            <div class="k">STATE</div><div class="v" id="d_state">READY</div>
-            <div class="k">TIME (s)</div><div class="v" id="d_time">0.00</div>
-            <div class="k">DIST (m)</div><div class="v" id="d_dist">0.0</div>
-            <div class="k">SPEED (km/h)</div><div class="v" id="d_speedLive">0.0</div>
-            <div class="k">RPM</div><div class="v" id="d_rpmLive">0</div>
+      <main class="page">
+        <section class="card">
+          <div class="card-head">
+            <div class="h1">DYNO ROAD WWW.SMTRACING.COM</div>
           </div>
-        </div>
 
-        <div class="box">
-          <div class="box-title">POWER</div>
-          <div class="kv">
-            <div class="k">TQ (Nm)</div><div class="v tq" id="d_tqLive">0.0</div>
-            <div class="k">HP</div><div class="v hp" id="d_hpLive">0.0</div>
-            <div class="k">IGN (°)</div><div class="v ign" id="d_ignLive">0.0</div>
-            <div class="k">MAX TQ</div><div class="v tq" id="d_tqMax">0.0</div>
-            <div class="k">MAX HP</div><div class="v hp" id="d_hpMax">0.0</div>
+          <div class="controls">
+            <div class="grid">
+              <div class="field">
+                <label>JARAK (m)</label>
+                <input id="d_targetM" type="number" step="1" value="200"/>
+              </div>
+
+              <div class="field">
+                <label>LINGKAR RODA (m)</label>
+                <input id="d_circM" type="number" step="0.01" value="1.85"/>
+              </div>
+
+              <div class="field">
+                <label>BERAT TOTAL (kg)</label>
+                <input id="d_weightKg" type="number" step="1" value="120"/>
+              </div>
+
+              <div class="field">
+                <label>PPR DEPAN</label>
+                <input id="d_pprFront" type="number" step="1" value="1"/>
+              </div>
+
+              <div class="field">
+                <label>PPR BELAKANG</label>
+                <input id="d_pprRear" type="number" step="1" value="1"/>
+              </div>
+              <!-- TICK DIHAPUS -->
+              <!-- RPM START/END DIHAPUS (dikunci di JS) -->
+            </div>
+
+            <div class="btns">
+              <button class="btn gray" onclick="DYNO_arm()">ARM</button>
+              <button class="btn green" onclick="DYNO_run()">RUN</button>
+              <button class="btn orange" onclick="DYNO_stop()">STOP</button>
+              <button class="btn blue" onclick="DYNO_saveCSV()">SAVE</button>
+            </div>
           </div>
-        </div>
 
-        <div class="box">
-          <div class="box-title">INFO</div>
-          <div class="kv">
-            <div class="k">Target (m)</div><div class="v" id="d_targetShow">200</div>
-            <div class="k">Circ (m)</div><div class="v" id="d_circShow">1.85</div>
-            <div class="k">Weight (kg)</div><div class="v" id="d_weightShow">120</div>
-            <div class="k">PPR Front</div><div class="v" id="d_pprFrontShow">1</div>
-            <div class="k">PPR Rear</div><div class="v" id="d_pprRearShow">1</div>
-            <div class="k">Log</div><div class="v" id="d_logInfo">0 rows</div>
+          <div class="statusbar">
+            <div id="d_status" class="status">READY</div>
           </div>
-        </div>
-      </aside>
+
+          <div class="layout layout-wide">
+            <div class="graph-wrap graph-wrap-wide">
+              <canvas id="dynoCanvas"></canvas>
+            </div>
+
+            <aside class="side side-wide">
+              <div class="box">
+                <div class="box-title">LIVE</div>
+                <div class="kv">
+                  <div class="k">STATE</div><div class="v" id="d_state">READY</div>
+                  <div class="k">TIME (s)</div><div class="v" id="d_time">0.00</div>
+                  <div class="k">DIST (m)</div><div class="v" id="d_dist">0.0</div>
+                  <div class="k">SPEED (km/h)</div><div class="v" id="d_speedLive">0.0</div>
+                  <div class="k">RPM</div><div class="v" id="d_rpmLive">0</div>
+                </div>
+              </div>
+
+              <div class="box">
+                <div class="box-title">POWER</div>
+                <div class="kv">
+                  <div class="k">TQ (Nm)</div><div class="v tq" id="d_tqLive">0.0</div>
+                  <div class="k">HP</div><div class="v hp" id="d_hpLive">0.0</div>
+                  <div class="k">IGN (°)</div><div class="v ign" id="d_ignLive">0.0</div>
+                  <div class="k">MAX TQ</div><div class="v tq" id="d_tqMax">0.0</div>
+                  <div class="k">MAX HP</div><div class="v hp" id="d_hpMax">0.0</div>
+                </div>
+              </div>
+
+              <div class="box">
+                <div class="box-title">INFO</div>
+                <div class="kv">
+                  <div class="k">Target (m)</div><div class="v" id="d_targetShow">200</div>
+                  <div class="k">Circ (m)</div><div class="v" id="d_circShow">1.85</div>
+                  <div class="k">Weight (kg)</div><div class="v" id="d_weightShow">120</div>
+                  <div class="k">PPR Front</div><div class="v" id="d_pprFrontShow">1</div>
+                  <div class="k">PPR Rear</div><div class="v" id="d_pprRearShow">1</div>
+                  <div class="k">Log</div><div class="v" id="d_logInfo">0 rows</div>
+                </div>
+              </div>
+            </aside>
+          </div>
+
+          <div class="table-wrap table-wide">
+            <div class="table-title">DATA LOG</div>
+            <div class="table-scroll">
+              <table class="log">
+                <thead>
+                  <tr>
+                    <th style="text-align:left">t(s)</th>
+                    <th>rpm</th>
+                    <th>tq(Nm)</th>
+                    <th>hp</th>
+                    <th>ign(°)</th>
+                    <th>afr</th>
+                    <th>dist(m)</th>
+                  </tr>
+                </thead>
+                <tbody id="d_tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+        </section>
+      </main>
+
     </div>
+  </div>
 
-    <div class="table-wrap table-wide">
-      <div class="table-title">DATA LOG</div>
-      <div class="table-scroll">
-        <table class="log">
-          <thead>
-            <tr>
-              <th style="text-align:left">t(s)</th>
-              <th>rpm</th>
-              <th>tq(Nm)</th>
-              <th>hp</th>
-              <th>ign(°)</th>
-              <th>afr</th>
-              <th>dist(m)</th>
+  <!-- ===== DOCK ZOOM ===== -->
+  <div class="zoom-dock" id="zoomDock">
+    <button class="zbtn" id="zoomOutBtn" type="button">−</button>
+    <!-- min bisa sampai 30% biar “lega” (0% tidak mungkin karena skala 0 bikin elemen hilang total) -->
+    <input class="zrange" id="zoomRange" type="range" min="30" max="160" value="100">
+    <button class="zbtn" id="zoomInBtn" type="button">+</button>
+    <div class="zlabel" id="zoomLabel">100%</div>
+  </div>
 
-            </tr>
-          </thead>
-          <tbody id="d_tbody"></tbody>
-        </table>
-      </div>
-    </div>
+</div>
 
-  </section>
-</main>
-
+<!-- scripts -->
 <script src="dyno/js/esp-api-dual.js"></script>
 <script src="dyno/js/dyno-road.js"></script>
 <script src="dyno/js/app.js"></script>
+
+<script>
+/* ===== FIX VH untuk Android (rotate + address bar) ===== */
+(function(){
+  function getH(){
+    if (window.visualViewport && typeof window.visualViewport.height === "number"){
+      return window.visualViewport.height;
+    }
+    return window.innerHeight;
+  }
+  function setVH(){
+    const h = getH();
+    document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
+  }
+  setVH();
+  window.addEventListener('resize', setVH, {passive:true});
+  if (window.visualViewport){
+    window.visualViewport.addEventListener('resize', setVH, {passive:true});
+  }
+  window.addEventListener('orientationchange', () => {
+    setTimeout(setVH, 250);
+    setTimeout(setVH, 600);
+  }, {passive:true});
+})();
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+  /* ===== ZOOM UI (hanya workspaceInner) ===== */
+  const zoomRange = document.getElementById('zoomRange');
+  const zoomInBtn = document.getElementById('zoomInBtn');
+  const zoomOutBtn = document.getElementById('zoomOutBtn');
+  const zoomLabel = document.getElementById('zoomLabel');
+
+  function setZoomPct(pct){
+    const clamped = Math.max(30, Math.min(160, pct));
+    const z = clamped / 100;
+
+    document.documentElement.style.setProperty('--ui-zoom', z.toFixed(3));
+    zoomRange.value = String(clamped);
+    zoomLabel.textContent = clamped + "%";
+
+    /* penting: redraw canvas setelah zoom supaya tajam & ukuran pas */
+    requestAnimationFrame(() => {
+      try{
+        if (typeof window.DYNO_redraw === "function") window.DYNO_redraw();
+      }catch(e){}
+      try{
+        const c = document.getElementById("dynoCanvas");
+        if (c && typeof window.renderDyno === "function") window.renderDyno();
+      }catch(e){}
+      /* fallback: paksa resize event biar dyno-road.js yang handle */
+      window.dispatchEvent(new Event("resize"));
+    });
+  }
+  setZoomPct(100);
+
+  zoomRange.addEventListener('input', () => setZoomPct(parseInt(zoomRange.value,10) || 100));
+  zoomInBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) + 5));
+  zoomOutBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) - 5));
+
+  /* ===== PWA INSTALL ===== */
+  const installBtn = document.getElementById('installBtn');
+  let deferredPrompt = null;
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    installBtn.style.display = 'inline-flex';
+  });
+
+  installBtn.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    installBtn.style.display = 'none';
+  });
+
+  window.addEventListener('appinstalled', () => {
+    installBtn.style.display = 'none';
+  });
+
+  /* ===== SW ===== */
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/dyno/service-worker.js").catch(()=>{});
+  }
+});
+</script>
+
 </body>
 </html>
