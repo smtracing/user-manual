@@ -1,17 +1,15 @@
 /* =========================================================
-   CDI DUAL – FINAL 2026 (REALTIME AFR VISUAL MAP + AFR DETAIL PANEL)
-   - Overlay AFR di canvas utama: "kasar" basis 500rpm
-   - AFR PANEL: detail per 100rpm (kotak jelas + warna beda per range 1.0 AFR)
-   - Range RPM min/max bisa diatur
-   - Kurva ignition di panel AFR sinkron dengan tab ignition
-   - AFR kecil di samping overlay DIHILANGKAN
-   - AFR besar tampil di tengah canvas HANYA saat AFR PANEL open
-   - AFR tengah & OVERLAY bergantian
-   - SAFETY REVISI (FIX):
-       * BLOK SEMUA tombol jika status CDI DUAL TIDAK AKTIF (not active/online)
-       * BLOK READ & KIRIM jika RPM berjalan (engine_running/rpm>0) ATAU saat LIVE ON
-       * LIVE boleh ON/OFF meski RPM jalan (agar bisa OFF)
-       * AFR PANEL & OVERLAY boleh dipakai meski RPM jalan (hanya butuh status aktif)
+   cdi-dual.js — CDI DUAL – FINAL 2026 (REALTIME AFR VISUAL MAP + AFR DETAIL PANEL)
+   FIX UTAMA:
+   ✅ Grafik tidak hilang setelah drag / zoom UI / rotate HP
+      - Canvas sizing pakai getBoundingClientRect + devicePixelRatio
+      - Semua hitungan pakai koordinat CSS (konsisten dengan pointer)
+   ✅ Drag titik pakai Pointer Events (HP + PC)
+   ✅ Safety:
+      - BLOK semua aksi kalau CDI DUAL tidak aktif
+      - BLOK READ & KIRIM jika LIVE ON atau RPM berjalan
+      - LIVE boleh OFF walau RPM berjalan
+      - AFR PANEL & OVERLAY boleh dipakai walau RPM berjalan (asal status aktif)
 ========================================================= */
 
 console.log("✅ cdi-dual.js dimuat");
@@ -27,15 +25,16 @@ window.DUAL = window.DUAL || {
     { limiter: 8000, curve: rpmPoints_BASIC.map(() => 18) },
     { limiter: 9000, curve: rpmPoints_BASIC.map(() => 14) }
   ],
+
   live: false,
   liveRPM: 0,
   liveAFR: null,
 
-  // ===== overlay kasar (500rpm) =====
+  // overlay kasar (basis 500rpm)
   afrZones: {},
   afrEnabled: true,
 
-  // ===== AFR DETAIL PANEL =====
+  // AFR DETAIL PANEL
   afrPanelOpen: false,
   centerAFR: false,
   afrRangeMin: 500,
@@ -46,7 +45,10 @@ window.DUAL = window.DUAL || {
 
   status: "UNKNOWN",
   statusTimer: null,
-  liveTimer: null
+  liveTimer: null,
+
+  // internal
+  _ro: null
 };
 
 /* =========================================================
@@ -56,6 +58,7 @@ window.deactivateCDI_DUAL = function () {
   if (!window.DUAL) return;
   DUAL.active = false;
   stopStatusWatcher_DUAL();
+  try { if (DUAL._ro) { DUAL._ro.disconnect(); DUAL._ro = null; } } catch(e){}
   if (typeof stopDualLive === "function") stopDualLive();
 };
 
@@ -76,7 +79,6 @@ function setActionStatus_DUAL(text, timeoutMs = 1000) {
 
 /* =========================================================
    STATUS ACTIVE CHECK (blok semua jika tidak aktif)
-   - HANYA ini yang memblok semua tombol
 ========================================================= */
 async function ensureCDIActive_DUAL(actionName) {
   if (!DUAL || !DUAL.active) return { ok: false, engine_running: false };
@@ -90,7 +92,7 @@ async function ensureCDIActive_DUAL(actionName) {
     const st = await getESPStatus_DUAL();
     const okDual = !!(st && st.online && st.active_cdi === "dual");
     if (!okDual) {
-      setActionStatus_DUAL(`CDI DUAL TIDAK AKTIF`, 1300);
+      setActionStatus_DUAL("CDI DUAL TIDAK AKTIF", 1300);
       return { ok: false, engine_running: !!(st && st.engine_running) };
     }
     return { ok: true, engine_running: !!(st && st.engine_running) };
@@ -108,7 +110,7 @@ function isRPMRunningFallback_DUAL() {
 }
 
 async function shouldBlockReadSend_DUAL(actionName) {
-  // 1) pastikan status aktif (kalau tidak aktif -> blok)
+  // 1) wajib aktif
   const st = await ensureCDIActive_DUAL(actionName);
   if (!st.ok) return true;
 
@@ -119,13 +121,34 @@ async function shouldBlockReadSend_DUAL(actionName) {
   }
 
   // 3) blok READ/KIRIM jika RPM berjalan
-  //    pakai status engine_running jika ada + fallback liveRPM
   if (st.engine_running || isRPMRunningFallback_DUAL()) {
     setActionStatus_DUAL(`RPM BERJALAN - ${actionName} DIBLOK`, 1400);
     return true;
   }
 
   return false;
+}
+
+/* =========================================================
+   CANVAS FIT (ANTI HILANG SETELAH DRAG/ZOOM/ROTATE)
+   - gambar & pointer pakai koordinat CSS
+========================================================= */
+function fitCanvasToRect(canvas, ctx) {
+  const r = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+
+  if (r.width <= 2 || r.height <= 2) return null;
+
+  const w = Math.round(r.width * dpr);
+  const h = Math.round(r.height * dpr);
+
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
+
+  // gambar pakai koordinat CSS px
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  return { W: r.width, H: r.height, dpr };
 }
 
 /* =========================================================
@@ -249,7 +272,7 @@ window.loadCDI_DUAL = function () {
     </div>
 
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      <h3 style="margin:0">CDI POWER SMT A2 </h3>
+      <h3 style="margin:0">CDI POWER SMT A2</h3>
 
       <div id="cdiStatusBox"
         style="font-size:11px;padding:4px 10px;background:#555;color:#fff">
@@ -306,6 +329,9 @@ window.loadCDI_DUAL = function () {
   enableDrag_DUAL();
   startStatusWatcher_DUAL();
 
+  // ResizeObserver biar selalu redraw kalau layout berubah (zoom UI / rotate / dll)
+  setupResizeObserver_DUAL();
+
   redrawAFRDetail_DUAL();
 };
 
@@ -354,7 +380,7 @@ function updateCDIStatus_DUAL(isActive) {
 /* =========================================================
    SWITCH MAP
 ========================================================= */
-function switchDualMap(i) {
+window.switchDualMap = function (i) {
   DUAL.activeMap = i;
 
   const b1 = document.getElementById("mapBtn1");
@@ -370,7 +396,7 @@ function switchDualMap(i) {
   buildTable_DUAL();
   redraw_DUAL();
   redrawAFRDetail_DUAL();
-}
+};
 
 /* =========================================================
    INPUT HANDLER + VALIDASI
@@ -387,6 +413,7 @@ function bindDualInputs() {
   };
   pickup.onblur = e => {
     let v = Number(e.target.value);
+    if (isNaN(v)) v = DUAL.pickup;
     if (v < PICKUP_MIN) v = PICKUP_MIN;
     if (v > PICKUP_MAX) v = PICKUP_MAX;
     DUAL.pickup = v;
@@ -410,6 +437,7 @@ function bindDualInputs() {
     };
     el.onblur = e => {
       let v = parseInt(e.target.value, 10);
+      if (isNaN(v)) v = DUAL.maps[i].limiter;
       if (v < RPM_MIN) v = RPM_MIN;
       if (v > RPM_MAX) v = RPM_MAX;
       DUAL.maps[i].limiter = v;
@@ -466,11 +494,9 @@ window.dualTableChange = function (idx, value) {
 
 /* =========================================================
    SAFE WRAPPERS
-   - LIVE / AFR PANEL / OVERLAY: hanya cek status aktif (tidak cek rpm)
-   - READ / KIRIM: cek status aktif + blok jika rpm jalan atau live on
 ========================================================= */
 window.toggleLive_DUAL_SAFE = async function () {
-  // jika LIVE sedang ON, izinkan OFF walau rpm jalan
+  // kalau LIVE ON -> izinkan OFF walau rpm jalan
   if (DUAL.live) {
     if (typeof toggleLive_DUAL === "function") toggleLive_DUAL();
     return;
@@ -622,6 +648,7 @@ window.clearAFRHistory_DUAL = function () {
   redrawAFRDetail_DUAL();
 };
 
+// dipanggil oleh cdi-dual-live.js (atau kamu bisa panggil manual)
 window.recordAFRSample100_DUAL = function (rpm, afr) {
   if (!DUAL) return;
   if (rpm <= 0 || afr == null || isNaN(afr)) return;
@@ -629,7 +656,7 @@ window.recordAFRSample100_DUAL = function (rpm, afr) {
   const r = clampTo100(Math.round(rpm));
   if (r < RPM_MIN || r > RPM_MAX) return;
 
-  DUAL.afrSamples100[String(r)] = { afr: Number(afr.toFixed(1)), t: Date.now() };
+  DUAL.afrSamples100[String(r)] = { afr: Number(Number(afr).toFixed(1)), t: Date.now() };
 
   if (DUAL.afrPanelOpen) redrawAFRDetail_DUAL();
 };
@@ -640,7 +667,6 @@ window.recordAFRSample100_DUAL = function (rpm, afr) {
 function getAFRColor(value) {
   const v = Number(value);
   if (!isFinite(v)) return "#555";
-  if (v < 12.0) return "#ff0000";
   if (v < 13.0) return "#ff0000";
   if (v < 14.0) return "#ffcc00";
   if (v < 15.0) return "#00ff66";
@@ -654,11 +680,11 @@ function shouldShowCenterAFR_DUAL() {
   return !!(DUAL && DUAL.active && DUAL.afrPanelOpen && DUAL.centerAFR && !DUAL.afrEnabled);
 }
 
-function drawCenterAFRText_DUAL(ctx, plotW) {
+function drawCenterAFRText_DUAL(ctx, W, plotW) {
   if (!shouldShowCenterAFR_DUAL()) return;
   if (!DUAL.live || DUAL.liveAFR == null) return;
 
-  const v = Number(DUAL.liveAFR.toFixed(1));
+  const v = Number(Number(DUAL.liveAFR).toFixed(1));
   const text = `AFR : ${v}`;
   const x = PLOT_LEFT + (plotW / 2);
   const y = AXIS_TOP_PADDING + 14;
@@ -674,39 +700,29 @@ function drawCenterAFRText_DUAL(ctx, plotW) {
 
   ctx.fillStyle = getAFRColor(v);
   ctx.fillText(text, x, y);
-
   ctx.restore();
 }
 
 /* =========================================================
    MAIN CANVAS AFR ZONES (kasar per 500rpm)
 ========================================================= */
-function drawAFRZones(ctx, plotW, plotH) {
+function drawAFRZones(ctx, W, plotW, plotH) {
   const rpmCount = rpmPoints_BASIC.length;
   const zoneW = plotW / (rpmCount - 1);
 
   if (DUAL.afrEnabled && DUAL.live && DUAL.liveAFR != null && DUAL.liveRPM > 0) {
-    const afrValue = Number(DUAL.liveAFR.toFixed(1));
+    const afrValue = Number(Number(DUAL.liveAFR).toFixed(1));
     const color = getAFRColor(afrValue);
     const rpm = DUAL.liveRPM;
 
     const base = Math.floor(rpm / 500) * 500;
     const next = base + 500;
 
-    if (rpm >= next) {
-      const idxStart = Math.floor((base - RPM_MIN) / RPM_STEP);
-      const idxEnd = Math.floor((next - RPM_MIN) / RPM_STEP);
-      for (let i = idxStart; i < idxEnd; i++) {
-        if (i >= 0 && i < rpmCount) DUAL.afrZones[i] = { color, value: afrValue };
-      }
-    }
+    const idxStart = Math.floor((base - RPM_MIN) / RPM_STEP);
+    const idxEnd = Math.floor((next - RPM_MIN) / RPM_STEP);
 
-    if (rpm < next && rpm >= base) {
-      const idxStart = Math.floor((base - RPM_MIN) / RPM_STEP);
-      const idxEnd = Math.floor((next - RPM_MIN) / RPM_STEP);
-      for (let i = idxStart; i < idxEnd; i++) {
-        if (i >= 0 && i < rpmCount) DUAL.afrZones[i] = { color, value: afrValue };
-      }
+    for (let i = idxStart; i < idxEnd; i++) {
+      if (i >= 0 && i < rpmCount) DUAL.afrZones[i] = { color, value: afrValue };
     }
   }
 
@@ -746,25 +762,33 @@ function drawAFRZones(ctx, plotW, plotH) {
 }
 
 /* =========================================================
-   REDRAW MAIN CANVAS
+   REDRAW MAIN CANVAS (FIXED)
 ========================================================= */
 function redraw_DUAL() {
   const c = document.getElementById("curveCanvas");
   if (!c) return;
   const ctx = c.getContext("2d");
 
-  c.width = c.clientWidth;
-  c.height = c.clientHeight;
+  const dim = fitCanvasToRect(c, ctx);
+  if (!dim) return;
 
-  const plotW = c.width - PLOT_LEFT - AXIS_RIGHT_PADDING;
-  const plotH = c.height - AXIS_BOTTOM - AXIS_TOP_PADDING;
-  const cap = DUAL.pickup ?? TIMING_MAX;
+  const W = dim.W;
+  const H = dim.H;
 
-  ctx.clearRect(0, 0, c.width, c.height);
+  const plotW = W - PLOT_LEFT - AXIS_RIGHT_PADDING;
+  const plotH = H - AXIS_BOTTOM - AXIS_TOP_PADDING;
+
+  const capRaw = (DUAL.pickup ?? TIMING_MAX);
+  const cap = Number(capRaw);
+  if (!isFinite(cap) || cap <= 0) return;
+
+  ctx.clearRect(0, 0, W, H);
   ctx.font = "11px Arial";
 
-  if (DUAL.live) drawAFRZones(ctx, plotW, plotH);
+  // AFR overlay
+  if (DUAL.live) drawAFRZones(ctx, W, plotW, plotH);
 
+  // grid horizontal
   ctx.strokeStyle = "#2a2f45";
   ctx.fillStyle = "#9fa8ff";
   ctx.textAlign = "right";
@@ -773,11 +797,12 @@ function redraw_DUAL() {
     const y = AXIS_TOP_PADDING + plotH - (t / cap) * plotH;
     ctx.beginPath();
     ctx.moveTo(PLOT_LEFT, y);
-    ctx.lineTo(c.width - AXIS_RIGHT_PADDING, y);
+    ctx.lineTo(W - AXIS_RIGHT_PADDING, y);
     ctx.stroke();
     ctx.fillText(`${t}°`, LABEL_WIDTH - 5, y);
   }
 
+  // grid vertikal
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   rpmPoints_BASIC.forEach((rpm, i) => {
@@ -790,11 +815,13 @@ function redraw_DUAL() {
     ctx.fillText(rpm, x, AXIS_TOP_PADDING + plotH + 5);
   });
 
+  // gambar kurva
   DUAL.maps.forEach((m, i) => {
-    if (i !== DUAL.activeMap) drawDualCurve(ctx, m, i, 0.4);
+    if (i !== DUAL.activeMap) drawDualCurve(ctx, m, i, 0.4, W, H, cap);
   });
-  drawDualCurve(ctx, DUAL.maps[DUAL.activeMap], DUAL.activeMap, 1);
+  drawDualCurve(ctx, DUAL.maps[DUAL.activeMap], DUAL.activeMap, 1, W, H, cap);
 
+  // garis LIVE
   if (DUAL.live) {
     const rpmLive = DUAL.liveRPM > 0 ? DUAL.liveRPM : RPM_MIN;
     const idx = Math.round((rpmLive - RPM_MIN) / RPM_STEP);
@@ -807,7 +834,8 @@ function redraw_DUAL() {
     ctx.stroke();
   }
 
-  drawCenterAFRText_DUAL(ctx, plotW);
+  // AFR tengah (hanya saat panel open)
+  drawCenterAFRText_DUAL(ctx, W, plotW);
 
   if (DUAL.afrPanelOpen) redrawAFRDetail_DUAL();
 }
@@ -815,10 +843,9 @@ function redraw_DUAL() {
 /* =========================================================
    DRAW CURVE
 ========================================================= */
-function drawDualCurve(ctx, map, index, alpha) {
-  const plotW = ctx.canvas.width - PLOT_LEFT - AXIS_RIGHT_PADDING;
-  const plotH = ctx.canvas.height - AXIS_BOTTOM - AXIS_TOP_PADDING;
-  const cap = DUAL.pickup ?? TIMING_MAX;
+function drawDualCurve(ctx, map, index, alpha, W, H, cap) {
+  const plotW = W - PLOT_LEFT - AXIS_RIGHT_PADDING;
+  const plotH = H - AXIS_BOTTOM - AXIS_TOP_PADDING;
   const colors = ["#4cff8f", "#ffb347"];
   const isActive = index === DUAL.activeMap;
 
@@ -829,7 +856,7 @@ function drawDualCurve(ctx, map, index, alpha) {
   ctx.beginPath();
   map.curve.forEach((v, i) => {
     if (map.limiter && rpmPoints_BASIC[i] > map.limiter) return;
-    const val = Math.min(v, cap);
+    const val = Math.min(Number(v), cap);
     const x = PLOT_LEFT + (i / (map.curve.length - 1)) * plotW;
     const y = AXIS_TOP_PADDING + plotH - (val / cap) * plotH;
     i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
@@ -840,7 +867,7 @@ function drawDualCurve(ctx, map, index, alpha) {
     ctx.fillStyle = colors[index];
     map.curve.forEach((v, i) => {
       if (map.limiter && rpmPoints_BASIC[i] > map.limiter) return;
-      const val = Math.min(v, cap);
+      const val = Math.min(Number(v), cap);
       const x = PLOT_LEFT + (i / (map.curve.length - 1)) * plotW;
       const y = AXIS_TOP_PADDING + plotH - (val / cap) * plotH;
       ctx.beginPath();
@@ -853,13 +880,12 @@ function drawDualCurve(ctx, map, index, alpha) {
 }
 
 /* =========================================================
-   DRAG TITIK
+   DRAG TITIK (Pointer Events, FIX)
 ========================================================= */
 function enableDrag_DUAL() {
   const c = document.getElementById("curveCanvas");
   if (!c) return;
 
-  // biar sentuh di canvas tidak dianggap scroll
   c.style.touchAction = "none";
 
   let idx = null;
@@ -867,59 +893,44 @@ function enableDrag_DUAL() {
 
   function posToCanvas(ev) {
     const r = c.getBoundingClientRect();
-
-    // scale: ukuran CSS -> ukuran internal canvas
-    const sx = c.width / r.width;
-    const sy = c.height / r.height;
-
-    const x = (ev.clientX - r.left) * sx;
-    const y = (ev.clientY - r.top) * sy;
-    return { x, y };
+    return { x: (ev.clientX - r.left), y: (ev.clientY - r.top), W: r.width, H: r.height };
   }
 
-  function findPointIndex(mx, my) {
-    const map = DUAL.maps[DUAL.activeMap];
-    const cap = DUAL.pickup ?? TIMING_MAX;
+  function findPointIndex(mx, my, W, H) {
+    const cap = Number(DUAL.pickup ?? TIMING_MAX);
+    if (!isFinite(cap) || cap <= 0) return null;
 
-    let found = null;
+    const plotW = W - PLOT_LEFT - AXIS_RIGHT_PADDING;
+    const plotH = H - AXIS_BOTTOM - AXIS_TOP_PADDING;
+
+    const map = DUAL.maps[DUAL.activeMap];
+
     for (let i = 0; i < map.curve.length; i++) {
       if (map.limiter && rpmPoints_BASIC[i] > map.limiter) continue;
 
-      const x =
-        PLOT_LEFT +
-        (i / (rpmPoints_BASIC.length - 1)) *
-          (c.width - PLOT_LEFT - AXIS_RIGHT_PADDING);
+      const x = PLOT_LEFT + (i / (rpmPoints_BASIC.length - 1)) * plotW;
+      const val = Math.min(Number(map.curve[i]), cap);
+      const y = AXIS_TOP_PADDING + plotH - (val / cap) * plotH;
 
-      const y =
-        AXIS_TOP_PADDING +
-        (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING) -
-        (Math.min(map.curve[i], cap) / cap) *
-          (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
-
-      // radius sentuh agak besar biar enak di HP
-      if (Math.hypot(mx - x, my - y) < 14) {
-        found = i;
-        break;
-      }
+      if (Math.hypot(mx - x, my - y) < 14) return i;
     }
-    return found;
+    return null;
   }
 
-  function applyValueFromY(i, my) {
-    const map = DUAL.maps[DUAL.activeMap];
-    const cap = DUAL.pickup ?? TIMING_MAX;
+  function applyValueFromY(i, my, H) {
+    const cap = Number(DUAL.pickup ?? TIMING_MAX);
+    if (!isFinite(cap) || cap <= 0) return;
 
-    let val =
-      cap *
-      (1 -
-        (my - AXIS_TOP_PADDING) /
-          (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING));
+    const denom = (H - AXIS_BOTTOM - AXIS_TOP_PADDING);
+    if (denom <= 5) return;
 
+    let val = cap * (1 - (my - AXIS_TOP_PADDING) / denom);
     val = Math.max(TIMING_MIN, Math.min(cap, val));
-    map.curve[i] = val;
+
+    DUAL.maps[DUAL.activeMap].curve[i] = val;
 
     const inp = document.querySelector(`#rpmTable tr:nth-child(${i + 2}) input`);
-    if (inp) inp.value = val.toFixed(1);
+    if (inp) inp.value = Number(val).toFixed(1);
 
     redraw_DUAL();
     redrawAFRDetail_DUAL();
@@ -927,15 +938,11 @@ function enableDrag_DUAL() {
 
   function onDown(ev) {
     const p = posToCanvas(ev);
-    const hit = findPointIndex(p.x, p.y);
-
+    const hit = findPointIndex(p.x, p.y, p.W, p.H);
     if (hit !== null) {
       idx = hit;
       dragging = true;
-
-      // kunci pointer ke canvas
-      try { c.setPointerCapture(ev.pointerId); } catch (e) {}
-
+      try { c.setPointerCapture(ev.pointerId); } catch(e){}
       ev.preventDefault();
       ev.stopPropagation();
     } else {
@@ -946,38 +953,26 @@ function enableDrag_DUAL() {
 
   function onMove(ev) {
     if (!dragging || idx === null) return;
-
     const p = posToCanvas(ev);
-    applyValueFromY(idx, p.y);
-
+    applyValueFromY(idx, p.y, p.H);
     ev.preventDefault();
     ev.stopPropagation();
   }
 
   function onUp(ev) {
     if (!dragging) return;
-
     dragging = false;
     idx = null;
-
-    try { c.releasePointerCapture(ev.pointerId); } catch (e) {}
-
+    try { c.releasePointerCapture(ev.pointerId); } catch(e){}
     ev.preventDefault();
     ev.stopPropagation();
   }
 
-  // bersihkan handler lama (kalau sebelumnya pakai onmousedown dll)
-  c.onmousedown = null;
-  c.onmousemove = null;
-  window.onmouseup = null;
-
-  // Pointer Events (jalan di HP + PC)
   c.addEventListener("pointerdown", onDown, { passive: false });
   c.addEventListener("pointermove", onMove, { passive: false });
   c.addEventListener("pointerup", onUp, { passive: false });
   c.addEventListener("pointercancel", onUp, { passive: false });
 }
-
 
 /* =========================================================
    INIT
@@ -988,7 +983,7 @@ function initCurve_DUAL() {
 }
 
 /* =========================================================
-   AFR PANEL RENDER (DETAIL PER 100 RPM)
+   AFR PANEL RENDER (DETAIL PER 100 RPM) — FIXED CANVAS
 ========================================================= */
 function redrawAFRDetail_DUAL() {
   if (!DUAL || !DUAL.active) return;
@@ -998,11 +993,11 @@ function redrawAFRDetail_DUAL() {
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
 
-  canvas.width = canvas.clientWidth;
-  canvas.height = canvas.clientHeight;
+  const dim = fitCanvasToRect(canvas, ctx);
+  if (!dim) return;
 
-  const W = canvas.width;
-  const H = canvas.height;
+  const W = dim.W;
+  const H = dim.H;
 
   const PAD_L = 55;
   const PAD_R = 12;
@@ -1024,8 +1019,10 @@ function redrawAFRDetail_DUAL() {
   ctx.clearRect(0, 0, W, H);
   ctx.font = "11px Arial";
 
-  const cap = DUAL.pickup ?? TIMING_MAX;
+  const cap = Number(DUAL.pickup ?? TIMING_MAX);
+  if (!isFinite(cap) || cap <= 0) return;
 
+  // grid horizontal
   ctx.strokeStyle = "rgba(70,80,110,0.35)";
   ctx.fillStyle = "rgba(180,190,255,0.9)";
   ctx.textAlign = "right";
@@ -1041,7 +1038,6 @@ function redrawAFRDetail_DUAL() {
 
   const step = 100;
   const count = Math.floor((rMax - rMin) / step) + 1;
-
   const cellW = plotW / count;
   const afrTextY = PAD_T + 2;
 
@@ -1050,7 +1046,6 @@ function redrawAFRDetail_DUAL() {
 
   for (let i = 0; i < count; i++) {
     const rpm = rMin + i * step;
-
     const xLeft = PAD_L + i * cellW;
     const xMid  = xLeft + cellW / 2;
 
@@ -1059,7 +1054,7 @@ function redrawAFRDetail_DUAL() {
     if (DUAL.afrSource === "LIVE") {
       const liveR = clampTo100(Math.round(DUAL.liveRPM || 0));
       if (DUAL.live && DUAL.liveAFR != null && liveR === rpm) {
-        afrVal = Number(DUAL.liveAFR.toFixed(1));
+        afrVal = Number(Number(DUAL.liveAFR).toFixed(1));
       } else {
         const s = DUAL.afrSamples100[String(rpm)];
         if (s) afrVal = s.afr;
@@ -1090,6 +1085,7 @@ function redrawAFRDetail_DUAL() {
     ctx.strokeRect(xLeft, PAD_T, cellW, plotH);
   }
 
+  // label rpm bawah
   ctx.fillStyle = "rgba(230,230,230,0.9)";
   ctx.textBaseline = "top";
   for (let i = 0; i < count; i++) {
@@ -1100,6 +1096,7 @@ function redrawAFRDetail_DUAL() {
     ctx.fillText(String(rpm), xMid, PAD_T + plotH + 6);
   }
 
+  // ignition sync (garis putih)
   const map = DUAL.maps[DUAL.activeMap];
   const maxLimiter = map.limiter || RPM_MAX;
 
@@ -1141,6 +1138,7 @@ function redrawAFRDetail_DUAL() {
     ctx.fill();
   }
 
+  // garis LIVE merah
   if (DUAL.live && DUAL.liveRPM > 0) {
     const liveR = clamp(DUAL.liveRPM, rMin, rMax);
     const x = PAD_L + ((liveR - rMin) / (rMax - rMin)) * plotW;
@@ -1181,12 +1179,40 @@ function clampTo100(v) {
 }
 
 /* =========================================================
+   RESIZE OBSERVER (BIAR STABIL)
+========================================================= */
+function setupResizeObserver_DUAL() {
+  try {
+    if (DUAL._ro) { DUAL._ro.disconnect(); DUAL._ro = null; }
+    const c1 = document.getElementById("curveCanvas");
+    const c2 = document.getElementById("afrDetailCanvas");
+
+    DUAL._ro = new ResizeObserver(() => {
+      if (!DUAL || !DUAL.active) return;
+      redraw_DUAL();
+      redrawAFRDetail_DUAL();
+    });
+
+    if (c1) DUAL._ro.observe(c1);
+    if (c2) DUAL._ro.observe(c2);
+
+    // tambahan: saat orientasi/resize window
+    window.addEventListener("resize", () => {
+      if (!DUAL || !DUAL.active) return;
+      redraw_DUAL();
+      redrawAFRDetail_DUAL();
+    }, { passive: true });
+  } catch(e) {
+    // kalau ResizeObserver tidak ada, tetap aman (manual redraw masih jalan)
+  }
+}
+
+/* =========================================================
    READ / SEND (FIX SAFETY)
 ========================================================= */
 window.read_DUAL = async function () {
   if (!DUAL || !DUAL.active) return;
 
-  // BLOK hanya jika rpm jalan / live on (status aktif tetap wajib)
   const blocked = await shouldBlockReadSend_DUAL("READ");
   if (blocked) return;
 
@@ -1223,11 +1249,11 @@ window.read_DUAL = async function () {
     redrawAFRDetail_DUAL();
 
     if (statusEl) statusEl.textContent = "READ OK";
-    setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 800);
+    setTimeout(() => { const s = document.getElementById("sendStatus"); if (s) s.textContent = ""; }, 800);
   } catch (e) {
     console.warn("[READ_DUAL FAIL]", e && e.message ? e.message : e);
     if (statusEl) statusEl.textContent = "READ FAIL";
-    setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 1200);
+    setTimeout(() => { const s = document.getElementById("sendStatus"); if (s) s.textContent = ""; }, 1200);
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -1236,7 +1262,6 @@ window.read_DUAL = async function () {
 window.send_DUAL = async function () {
   if (!DUAL || !DUAL.active) return;
 
-  // BLOK hanya jika rpm jalan / live on (status aktif tetap wajib)
   const blocked = await shouldBlockReadSend_DUAL("KIRIM");
   if (blocked) return;
 
@@ -1260,11 +1285,11 @@ window.send_DUAL = async function () {
     if (!res || !res.ok) throw new Error((res && res.reason) ? res.reason : "SEND_FAIL");
 
     if (statusEl) statusEl.textContent = "KIRIM OK";
-    setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 900);
+    setTimeout(() => { const s = document.getElementById("sendStatus"); if (s) s.textContent = ""; }, 900);
   } catch (e) {
     console.warn("[SEND_DUAL FAIL]", e && e.message ? e.message : e);
     if (statusEl) statusEl.textContent = "KIRIM FAIL";
-    setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 1400);
+    setTimeout(() => { const s = document.getElementById("sendStatus"); if (s) s.textContent = ""; }, 1400);
   } finally {
     if (btn) btn.disabled = false;
   }
