@@ -6,7 +6,7 @@
   <title>CDI MAPPING</title>
 
   <!-- ===== PWA (CDI) ===== -->
-  <link rel="manifest" href="/cdi.webmanifest?v3">
+  <link rel="manifest" href="/cdi.webmanifest?v=3">
   <meta name="theme-color" content="#0e0f13">
 
   <!-- iOS A2HS -->
@@ -26,8 +26,10 @@
       --vh: 1vh; /* di-set oleh JS */
     }
 
+    /* ✅ FIX: jangan pakai height:100% untuk Android rotate */
     html, body{
-      height:100%;
+      width:100%;
+      height: calc(var(--vh) * 100);
       margin:0;
       overflow:hidden;
       overscroll-behavior:none;
@@ -90,7 +92,7 @@
       z-index:999999;
     }
 
-    /* ===== ROOT (pakai --vh biar akurat saat HP diputar / address bar berubah) ===== */
+    /* ✅ FIX: root benar-benar ikut vh */
     #appRoot{
       height: calc(var(--vh) * 100);
       width:100vw;
@@ -191,7 +193,6 @@
     }
 
     /* ===== KUNCI INTERAKSI CANVAS DI HP (BIAR DRAG TITIK JALAN) ===== */
-    /* Kalau ID canvas beda, aman (tidak ngaruh). */
     #curveCanvas{ touch-action:none; }
   </style>
 </head>
@@ -204,8 +205,6 @@
     <div class="title">CDI MAPPING</div>
 
     <div class="top-actions">
-      <!-- ROTATE / LAND dihapus. Orientasi ikut HP. -->
-
       <button id="installBtn" class="chip-btn" type="button" style="display:none;">⬇ INSTALL</button>
 
       <div class="menu-wrapper">
@@ -241,37 +240,53 @@
 
 </div>
 
-<!-- app utama -->
 <script src="cdi/js/app.js"></script>
-
-<!-- modul CDI -->
 <script src="cdi/js/esp/esp-api.js"></script>
 <script src="cdi/js/esp/esp-api-dual.js"></script>
-
 <script src="cdi/js/cdi-basic/cdi-basic.js"></script>
 <script src="cdi/js/cdi-basic/cdi-basic-live.js"></script>
-
 <script src="cdi/js/cdi-dual/cdi-dual.js"></script>
 <script src="cdi/js/cdi-dual/cdi-dual-live.js"></script>
-
 <script src="cdi/js/cdi-racing/cdi-racing.js"></script>
 
 <script>
-/* ===== FIX VH untuk HP (address bar & rotate) ===== */
+/* ===== FIX VH untuk HP (rotate + address bar) ===== */
 (function(){
-  function setVH(){
-    document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+  function getH(){
+    // visualViewport lebih akurat di Android
+    if (window.visualViewport && typeof window.visualViewport.height === "number"){
+      return window.visualViewport.height;
+    }
+    return window.innerHeight;
   }
+
+  function setVH(){
+    const h = getH();
+    document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
+  }
+
   setVH();
+
+  // resize biasa
   window.addEventListener('resize', setVH, {passive:true});
-  window.addEventListener('orientationchange', setVH, {passive:true});
+
+  // visualViewport resize (address bar / rotate)
+  if (window.visualViewport){
+    window.visualViewport.addEventListener('resize', setVH, {passive:true});
+  }
+
+  // orientationchange perlu delay (biar innerHeight sudah update)
+  window.addEventListener('orientationchange', () => {
+    setTimeout(setVH, 250);
+    setTimeout(setVH, 600);
+  }, {passive:true});
 })();
 </script>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 
-  // ===== ZOOM UI (hanya tampilan workspace) =====
+  // ===== ZOOM UI =====
   const zoomRange = document.getElementById('zoomRange');
   const zoomInBtn = document.getElementById('zoomInBtn');
   const zoomOutBtn = document.getElementById('zoomOutBtn');
@@ -336,4 +351,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </body>
 </html>
-
