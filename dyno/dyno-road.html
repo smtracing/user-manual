@@ -94,7 +94,9 @@
       user-select:none;
       white-space:nowrap;
     }
-    .chip-btn:active{ transform:translateY(-50%) scale(.98); }
+    
+    .chip-btn{ transition: filter .12s ease, opacity .12s ease; }
+    .chip-btn:active{ filter: brightness(1.15); }
 
     /* Workspace scrollable (konten) */
     #workspace{
@@ -426,5 +428,6 @@ document.addEventListener('DOMContentLoaded', () => {
 </body>
 
 </html>
+
 
 
