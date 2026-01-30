@@ -92,7 +92,7 @@ window.loadCDI_BASIC = function() {
     </div>
 
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      <h3 style="margin:0">CDI POWER BAND A1 </h3>
+      <h3 style="margin:0">CDI BASIC – Ignition Curve</h3>
       <div id="cdiStatusBox"
         style="font-size:11px;padding:4px 10px;border-radius:4px;background:#555;color:#fff;user-select:none">
         STATUS: CEK...
@@ -366,151 +366,38 @@ function redraw_BASIC() {
 /* =========================================================
    DRAG TITIK
 ========================================================= */
-function enableDrag_BASIC(){
-  const c = document.getElementById("curveCanvas_BASIC") || document.getElementById("curveCanvas");
-  if (!c) return;
-
-  // HP: jangan biarkan gesture jadi scroll / pinch browser
-  c.style.touchAction = "none";
-
-  let dragging = false;
+function enableDrag_BASIC() {
+  const c = document.getElementById("curveCanvas");
   let idx = null;
-  let pid = null;
 
-  function isRotate(){
-    return document.body.classList.contains("rotate-mode");
-  }
-
-  function dxStep(){
-    return (c.width - PLOT_LEFT - AXIS_RIGHT_PADDING) / (rpmPoints_BASIC.length - 1);
-  }
-
-  // pointer -> koordinat canvas (normal + rotate, auto pilih CW/CCW)
-  function pointerToCanvas(e){
+  c.onmousedown = e => {
     const r = c.getBoundingClientRect();
-    const u = (e.clientX - r.left);
-    const v = (e.clientY - r.top);
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const cap = BASIC.pickup ?? TIMING_MAX;
 
-    // NORMAL
-    if (!isRotate()){
-      const sx = c.width / r.width;
-      const sy = c.height / r.height;
-      return { x: u * sx, y: v * sy };
-    }
+    BASIC.curve.forEach((v, i) => {
+      if (BASIC.limiter && rpmPoints_BASIC[i] > BASIC.limiter) return;
+      const x = PLOT_LEFT + (i / (BASIC.curve.length - 1)) * (c.width - PLOT_LEFT - AXIS_RIGHT_PADDING);
+      const y = AXIS_TOP_PADDING + (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING)
+        - (Math.min(v, cap) / cap) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
+      if (Math.hypot(mx - x, my - y) < 8) idx = i;
+    });
+  };
 
-    // ROTATE: coba 2 kemungkinan (CW & CCW)
-    // Saat rotate, rect biasanya swap (width<->height), jadi pakai ini:
-    const sxR = c.width  / r.height;
-    const syR = c.height / r.width;
-
-    // 90° clockwise
-    const pCW  = { x: c.width - (v * sxR), y: (u * syR) };
-    // 90° counter-clockwise
-    const pCCW = { x: (v * sxR), y: c.height - (u * syR) };
-
-    const dx = dxStep();
-
-    function inBounds(p){
-      return p.x >= 0 && p.x <= c.width && p.y >= 0 && p.y <= c.height;
-    }
-
-    function score(p){
-      let i = Math.round((p.x - PLOT_LEFT) / dx);
-      i = Math.max(0, Math.min(rpmPoints_BASIC.length - 1, i));
-
-      const cap = (BASIC.pickup ?? TIMING_MAX);
-      const px = PLOT_LEFT + i * dx;
-
-      const curVal = BASIC.curve[i];
-      const py = AXIS_TOP_PADDING + (1 - (Math.min(curVal, cap) / cap)) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
-
-      const d = Math.hypot(p.x - px, p.y - py);
-      return (inBounds(p) ? 0 : 9999) + d;
-    }
-
-    return (score(pCW) <= score(pCCW)) ? pCW : pCCW;
-  }
-
-  function setFromY(i, y){
-    const cap = (BASIC.pickup ?? TIMING_MAX);
-
-    let val = cap * (1 - (y - AXIS_TOP_PADDING) / (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING));
+  c.onmousemove = e => {
+    if (idx === null) return;
+    const r = c.getBoundingClientRect();
+    const cap = BASIC.pickup ?? TIMING_MAX;
+    let val = cap * (1 - (e.clientY - r.top - AXIS_TOP_PADDING) / (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING));
     val = Math.max(TIMING_MIN, Math.min(cap, val));
-
-    BASIC.curve[i] = val;
-
-    const inp = document.querySelector(`#rpmTable tr:nth-child(${i + 2}) input`);
+    BASIC.curve[idx] = val;
+    const inp = document.querySelector(`#rpmTable tr:nth-child(${idx + 2}) input`);
     if (inp) inp.value = val.toFixed(1);
-
     redraw_BASIC();
-    if (typeof redrawAFRDetail_BASIC === "function") redrawAFRDetail_BASIC();
-  }
+  };
 
-  function onDown(e){
-    // hanya klik kiri / touch
-    if (e.button !== undefined && e.button !== 0) return;
-
-    const p = pointerToCanvas(e);
-    const dx = dxStep();
-
-    const i = Math.round((p.x - PLOT_LEFT) / dx);
-    if (i < 0 || i >= rpmPoints_BASIC.length) return;
-
-    // wajib dekat titik (biar tidak salah tarik)
-    const cap = (BASIC.pickup ?? TIMING_MAX);
-    const px  = PLOT_LEFT + i * dx;
-
-    const curVal = BASIC.curve[i];
-    const py = AXIS_TOP_PADDING + (1 - (Math.min(curVal, cap) / cap)) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
-
-    const hitR = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) ? 22 : 10;
-    if (Math.hypot(p.x - px, p.y - py) > hitR) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    dragging = true;
-    idx = i;
-    pid = (e.pointerId !== undefined) ? e.pointerId : null;
-
-    try { if (c.setPointerCapture && pid !== null) c.setPointerCapture(pid); } catch(_){}
-
-    setFromY(idx, p.y);
-  }
-
-  function onMove(e){
-    if (!dragging) return;
-    if (pid !== null && e.pointerId !== pid) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    const p = pointerToCanvas(e);
-    setFromY(idx, p.y);
-  }
-
-  function onUp(e){
-    if (!dragging) return;
-    if (pid !== null && e.pointerId !== undefined && e.pointerId !== pid) return;
-
-    dragging = false;
-    idx = null;
-
-    try { if (c.releasePointerCapture && pid !== null) c.releasePointerCapture(pid); } catch(_){}
-    pid = null;
-  }
-
-  // bersihkan handler lama biar tidak bentrok
-  c.onmousedown = null;
-  c.onmousemove = null;
-  window.onmouseup = null;
-
-  c.addEventListener("pointerdown", onDown, { passive:false });
-  c.addEventListener("pointermove", onMove, { passive:false });
-  window.addEventListener("pointerup", onUp, { passive:false });
-  window.addEventListener("pointercancel", onUp, { passive:false });
+  window.onmouseup = () => idx = null;
 }
-
 
 /* =========================================================
    SEND DATA MAP KE ESP
