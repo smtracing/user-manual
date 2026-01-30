@@ -11,7 +11,7 @@ const CACHE_PREFIX  = "smt-cdi-";
 const CACHE_VERSION = "smt-cdi-v3";   // naikkan versi kalau update
 const CACHE_NAME    = CACHE_VERSION;
 
-const CDI_HOME = "/cdi/cdi-mapping.html";   // pastikan ini benar
+const CDI_HOME = "/cdi-mapping.html";   // pastikan ini benar
 
 const CORE_ASSETS = [
   CDI_HOME,
@@ -19,21 +19,21 @@ const CORE_ASSETS = [
   // jangan cache manifest jika kamu mau selalu fresh (OK)
   // "/cdi/cdi.webmanifest",
 
-  "/cdi/css/style.css",
-  "/cdi/js/app.js",
+  "/css/style.css",
+  "/js/app.js",
 
-  "/cdi/js/esp/esp-api.js",
-  "/cdi/js/esp/esp-api-dual.js",
+  "/js/esp/esp-api.js",
+  "/js/esp/esp-api-dual.js",
 
-  "/cdi/js/cdi-basic/cdi-basic.js",
-  "/cdi/js/cdi-basic/cdi-basic-live.js",
+  "/js/cdi-basic/cdi-basic.js",
+  "/js/cdi-basic/cdi-basic-live.js",
 
-  "/cdi/js/cdi-dual/cdi-dual.js",
-  "/cdi/js/cdi-dual/cdi-dual-live.js",
+  "/js/cdi-dual/cdi-dual.js",
+  "/js/cdi-dual/cdi-dual-live.js",
 
-  "/cdi/js/cdi-racing/cdi-racing.js",
+  "/js/cdi-racing/cdi-racing.js",
 
-  "/cdi/img/bg-cdi.png",
+  "/img/bg-cdi.png",
 
   // icon global boleh
   "/assets/icon-192.png",
@@ -139,3 +139,4 @@ self.addEventListener("fetch", (event) => {
     }
   })());
 });
+
