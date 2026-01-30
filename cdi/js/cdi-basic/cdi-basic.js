@@ -366,69 +366,53 @@ function redraw_BASIC() {
 /* =========================================================
    DRAG TITIK
 ========================================================= */
+
 function enableDrag_BASIC(){
-  const c = document.getElementById("curveCanvas_BASIC") || document.getElementById("curveCanvas");
+  const c = document.getElementById("curveCanvas");
   if (!c) return;
 
-  // HP: jangan biarkan gesture jadi scroll / pinch browser
+  // penting untuk HP: cegah browser anggap drag = scroll/zoom
   c.style.touchAction = "none";
 
+  const workspace = document.getElementById("workspace"); // dari HTML kamu
   let dragging = false;
   let idx = null;
-  let pid = null;
 
-  function isRotate(){
-    return document.body.classList.contains("rotate-mode");
+  function lockScroll(lock){
+    if (!workspace) return;
+    workspace.style.overflow = lock ? "hidden" : "auto";
+  }
+
+  function pos(e){
+    const r = c.getBoundingClientRect();
+    // rect sudah ikut skala (zoom UI), jadi mapping aman
+    const sx = c.width  / r.width;
+    const sy = c.height / r.height;
+    return {
+      x: (e.clientX - r.left) * sx,
+      y: (e.clientY - r.top)  * sy
+    };
   }
 
   function dxStep(){
     return (c.width - PLOT_LEFT - AXIS_RIGHT_PADDING) / (rpmPoints_BASIC.length - 1);
   }
 
-  // pointer -> koordinat canvas (normal + rotate, auto pilih CW/CCW)
-  function pointerToCanvas(e){
-    const r = c.getBoundingClientRect();
-    const u = (e.clientX - r.left);
-    const v = (e.clientY - r.top);
-
-    // NORMAL
-    if (!isRotate()){
-      const sx = c.width / r.width;
-      const sy = c.height / r.height;
-      return { x: u * sx, y: v * sy };
-    }
-
-    // ROTATE: coba 2 kemungkinan (CW & CCW)
-    // Saat rotate, rect biasanya swap (width<->height), jadi pakai ini:
-    const sxR = c.width  / r.height;
-    const syR = c.height / r.width;
-
-    // 90° clockwise
-    const pCW  = { x: c.width - (v * sxR), y: (u * syR) };
-    // 90° counter-clockwise
-    const pCCW = { x: (v * sxR), y: c.height - (u * syR) };
-
+  function hitIndex(p){
     const dx = dxStep();
+    let i = Math.round((p.x - PLOT_LEFT) / dx);
+    if (i < 0 || i >= rpmPoints_BASIC.length) return null;
 
-    function inBounds(p){
-      return p.x >= 0 && p.x <= c.width && p.y >= 0 && p.y <= c.height;
-    }
+    const cap = (BASIC.pickup ?? TIMING_MAX);
+    const px  = PLOT_LEFT + i * dx;
+    const cur = BASIC.curve[i];
+    const py  = AXIS_TOP_PADDING + (1 - (Math.min(cur, cap) / cap)) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
 
-    function score(p){
-      let i = Math.round((p.x - PLOT_LEFT) / dx);
-      i = Math.max(0, Math.min(rpmPoints_BASIC.length - 1, i));
+    // radius lebih besar untuk touch
+    const hitR = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) ? 22 : 10;
+    if (Math.hypot(p.x - px, p.y - py) > hitR) return null;
 
-      const cap = (BASIC.pickup ?? TIMING_MAX);
-      const px = PLOT_LEFT + i * dx;
-
-      const curVal = BASIC.curve[i];
-      const py = AXIS_TOP_PADDING + (1 - (Math.min(curVal, cap) / cap)) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
-
-      const d = Math.hypot(p.x - px, p.y - py);
-      return (inBounds(p) ? 0 : 9999) + d;
-    }
-
-    return (score(pCW) <= score(pCCW)) ? pCW : pCCW;
+    return i;
   }
 
   function setFromY(i, y){
@@ -447,69 +431,57 @@ function enableDrag_BASIC(){
   }
 
   function onDown(e){
-    // hanya klik kiri / touch
+    // klik kiri / touch saja
     if (e.button !== undefined && e.button !== 0) return;
 
-    const p = pointerToCanvas(e);
-    const dx = dxStep();
-
-    const i = Math.round((p.x - PLOT_LEFT) / dx);
-    if (i < 0 || i >= rpmPoints_BASIC.length) return;
-
-    // wajib dekat titik (biar tidak salah tarik)
-    const cap = (BASIC.pickup ?? TIMING_MAX);
-    const px  = PLOT_LEFT + i * dx;
-
-    const curVal = BASIC.curve[i];
-    const py = AXIS_TOP_PADDING + (1 - (Math.min(curVal, cap) / cap)) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
-
-    const hitR = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) ? 22 : 10;
-    if (Math.hypot(p.x - px, p.y - py) > hitR) return;
-
-    e.preventDefault();
-    e.stopPropagation();
+    const p = pos(e);
+    const i = hitIndex(p);
+    if (i === null) return;
 
     dragging = true;
     idx = i;
-    pid = (e.pointerId !== undefined) ? e.pointerId : null;
 
-    try { if (c.setPointerCapture && pid !== null) c.setPointerCapture(pid); } catch(_){}
+    lockScroll(true);
+
+    // tangkap pointer supaya drag tidak putus
+    try{ c.setPointerCapture(e.pointerId); }catch(_){}
+
+    e.preventDefault();
+    e.stopPropagation();
 
     setFromY(idx, p.y);
   }
 
   function onMove(e){
-    if (!dragging) return;
-    if (pid !== null && e.pointerId !== pid) return;
+    if (!dragging || idx === null) return;
 
+    const p = pos(e);
     e.preventDefault();
     e.stopPropagation();
 
-    const p = pointerToCanvas(e);
     setFromY(idx, p.y);
   }
 
-  function onUp(e){
+  function end(){
     if (!dragging) return;
-    if (pid !== null && e.pointerId !== undefined && e.pointerId !== pid) return;
-
     dragging = false;
     idx = null;
-
-    try { if (c.releasePointerCapture && pid !== null) c.releasePointerCapture(pid); } catch(_){}
-    pid = null;
+    lockScroll(false);
   }
 
-  // bersihkan handler lama biar tidak bentrok
+  // HAPUS handler mouse lama (biar tidak bentrok)
   c.onmousedown = null;
   c.onmousemove = null;
   window.onmouseup = null;
 
+  // Pakai pointer event (jalan di PC + HP)
   c.addEventListener("pointerdown", onDown, { passive:false });
   c.addEventListener("pointermove", onMove, { passive:false });
-  window.addEventListener("pointerup", onUp, { passive:false });
-  window.addEventListener("pointercancel", onUp, { passive:false });
+  c.addEventListener("pointerup", end, { passive:true });
+  c.addEventListener("pointercancel", end, { passive:true });
+  window.addEventListener("pointerup", end, { passive:true });
 }
+
 
 
 /* =========================================================
