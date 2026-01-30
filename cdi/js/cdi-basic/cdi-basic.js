@@ -367,75 +367,42 @@ function redraw_BASIC() {
    DRAG TITIK
 ========================================================= */
 function enableDrag_BASIC(){
-  const c = document.getElementById("curveCanvas_BASIC") || document.getElementById("curveCanvas");
-  const root = document.getElementById("appRoot") || document.body;
+  const c = document.getElementById("curveCanvas");
   if(!c) return;
 
+  // penting untuk HP
   c.style.touchAction = "none";
 
   let dragging = false;
   let idx = null;
   let pid = null;
 
-  function getUiZoom(){
-    const v = getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom').trim();
-    const z = parseFloat(v);
-    return (isFinite(z) && z > 0) ? z : 1;
+  function isRotate(){
+    return document.body.classList.contains("rotate-mode");
   }
 
-  function offsetTo(el, stopEl){
-    let x = 0, y = 0;
-    let cur = el;
-    while(cur && cur !== stopEl){
-      x += cur.offsetLeft || 0;
-      y += cur.offsetTop  || 0;
-      cur = cur.offsetParent;
-    }
-    return {x,y};
-  }
-
-  // layar -> koordinat "layout asli" appRoot (sebelum rotate)
-  function screenToRoot(clientX, clientY){
-    // normal: root tidak rotate, cukup pakai rect
-    if(!document.body.classList.contains("rotate-mode")){
-      const rr = root.getBoundingClientRect();
-      return { x: clientX - rr.left, y: clientY - rr.top };
-    }
-
-    const rr = root.getBoundingClientRect();
-    const dx = clientX - rr.left;
-    const dy = clientY - rr.top;
-
-    const tf = getComputedStyle(root).transform;
-    if(!tf || tf === "none"){
-      return { x: dx, y: dy };
-    }
-
-    const m = new DOMMatrix(tf);
-    const inv = m.inverse();
-    const p = new DOMPoint(dx, dy).matrixTransform(inv);
-    return { x: p.x, y: p.y };
-  }
-
-  // pointer -> koordinat CANVAS (selalu benar walau rotate + zoom CSS)
+  // POINTER -> koordinat canvas (BENAR normal & rotate)
   function pointerToCanvas(e){
-    const rp = screenToRoot(e.clientX, e.clientY);
+    const r = c.getBoundingClientRect();
 
-    // posisi canvas di layout asli (bukan rect rotated)
-    const off = offsetTo(c, root);
-    const lx = rp.x - off.x;
-    const ly = rp.y - off.y;
+    const u = (e.clientX - r.left); // layar X di dalam rect
+    const v = (e.clientY - r.top);  // layar Y di dalam rect
 
-    // skala display->buffer
-    const sx = c.width  / (c.offsetWidth  || 1);
-    const sy = c.height / (c.offsetHeight || 1);
+    if(!isRotate()){
+      const sx = c.width / r.width;
+      const sy = c.height / r.height;
+      return { x: u * sx, y: v * sy };
+    } else {
+      // ROTATE 90deg clockwise:
+      // screenX (u) = localY
+      // screenY (v) = (W - localX)
+      const sy = c.height / r.width;   // rect.width mewakili tinggi asli
+      const sx = c.width  / r.height;  // rect.height mewakili lebar asli
 
-    // koreksi zoom UI (workspaceInner scale)
-    const z = getUiZoom();
-    const x = (lx / z) * sx;
-    const y = (ly / z) * sy;
-
-    return {x, y};
+      const y = u * sy;
+      const x = c.width - (v * sx);
+      return { x, y };
+    }
   }
 
   function dxStep(){
@@ -443,7 +410,7 @@ function enableDrag_BASIC(){
   }
 
   function setFromY(i, y){
-    const cap = (BASIC.pickup ?? TIMING_MAX);
+    const cap = BASIC.pickup ?? TIMING_MAX;
     let val = cap * (1 - (y - AXIS_TOP_PADDING) / (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING));
     val = Math.max(TIMING_MIN, Math.min(cap, val));
 
@@ -466,10 +433,12 @@ function enableDrag_BASIC(){
     if (i < 0 || i >= rpmPoints_BASIC.length) return;
 
     // hit test dekat titik
-    const cap = (BASIC.pickup ?? TIMING_MAX);
+    const cap = BASIC.pickup ?? TIMING_MAX;
     const px = PLOT_LEFT + i * dx;
+
     const curVal = BASIC.curve[i];
-    const py = AXIS_TOP_PADDING + (1 - (Math.min(curVal, cap) / cap)) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
+    const py = AXIS_TOP_PADDING + (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING)
+      - (Math.min(curVal, cap) / cap) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
 
     const hitR = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) ? 20 : 10;
     if (Math.hypot(p.x - px, p.y - py) > hitR) return;
@@ -508,16 +477,16 @@ function enableDrag_BASIC(){
     pid = null;
   }
 
-  // bersihin handler lama
+  // matikan handler lama yang bentrok
   c.onmousedown = null;
   c.onmousemove = null;
+  window.onmouseup = null;
 
   c.addEventListener("pointerdown", onDown, {passive:false});
   c.addEventListener("pointermove", onMove, {passive:false});
   window.addEventListener("pointerup", onUp, {passive:false});
   window.addEventListener("pointercancel", onUp, {passive:false});
 }
-
 
 
 /* =========================================================
