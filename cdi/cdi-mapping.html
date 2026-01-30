@@ -360,10 +360,11 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
+    navigator.serviceWorker.register("/cdi/service-worker.js").catch(()=>{});
   }
 });
 </script>
 
 </body>
+
 </html>
