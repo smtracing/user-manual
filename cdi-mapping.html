@@ -15,21 +15,17 @@
   <meta name="apple-mobile-web-app-title" content="CDI Map">
   <link rel="apple-touch-icon" href="/assets/icon-192.png">
 
-  <!-- style utama -->
   <link rel="stylesheet" href="cdi/css/style.css" />
 
   <style>
     :root{
       --topbar-h: 56px;
 
-      /* zoom UI hanya untuk workspace */
+      /* ✅ reserve ruang untuk dock (biar area mapping tidak ketimpa) */
+      --dock-h: 64px;
+
       --ui-zoom: 1;
-
-      /* vh akurat android rotate */
       --vh: 1vh;
-
-      /* ukuran dock (buat tooltip saja) */
-      --dock-safe: calc(54px + env(safe-area-inset-bottom, 0px));
     }
 
     html, body{
@@ -41,7 +37,6 @@
       background:#0e0f13;
     }
 
-    /* ===== topbar rapih ===== */
     .topbar{
       display:flex;
       align-items:center;
@@ -97,7 +92,6 @@
       z-index:999999;
     }
 
-    /* root ikut vh */
     #appRoot{
       height: calc(var(--vh) * 100);
       width:100vw;
@@ -105,25 +99,21 @@
       overflow:hidden;
     }
 
-    /* ===== WORKSPACE 1 layar =====
-       ✅ PENTING: bottom:0 (dock tidak “memakan” tinggi layout),
-       jadi zoom out tidak bikin area mapping makin sempit.
-    */
+    /* ===== WORKSPACE ===== */
     #workspace{
       position:absolute;
       top:var(--topbar-h);
       left:0;
       right:0;
-      bottom:0;                 /* ✅ ganti dari bottom:var(--dock-h) */
+
+      /* ✅ ruang untuk dock fixed */
+      bottom: calc(var(--dock-h) + env(safe-area-inset-bottom));
       overflow:auto;
       -webkit-overflow-scrolling:touch;
       overscroll-behavior:contain;
-      padding-bottom: var(--dock-safe); /* ✅ biar konten tidak ketutup dock */
-      box-sizing:border-box;
     }
     #workspace::-webkit-scrollbar{ display:none; }
 
-    /* area yang di-zoom */
     #workspaceInner{
       transform-origin: top left;
       transform: scale(var(--ui-zoom));
@@ -131,25 +121,23 @@
       min-height: calc(100% / var(--ui-zoom));
     }
 
-    /* background */
     .bg-image{ position:fixed; inset:0; }
 
-    /* ===== DOCK ZOOM bawah =====
-       ✅ fixed + ukuran tetap + tidak wrap
-    */
+    /* ===== ZOOM DOCK (FIX: tidak boleh naik / wrap) ===== */
     .zoom-dock{
-      position:fixed;
+      position:fixed; /* ✅ FIXED: nempel layar, bukan ikut container */
       left:50%;
-      bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+      bottom: calc(env(safe-area-inset-bottom) + 8px);
       transform:translateX(-50%);
       z-index:999998;
 
-      height:40px;
+      /* ✅ batas lebar + 1 baris */
+      width: min(520px, calc(100vw - 16px));
+      height:44px;
       display:flex;
       align-items:center;
       gap:8px;
       padding:6px 8px;
-
       border-radius:14px;
       border:1px solid rgba(255,255,255,.16);
       background:rgba(0,0,0,.40);
@@ -158,44 +146,41 @@
       -webkit-tap-highlight-color: transparent;
       user-select:none;
 
-      width: fit-content;
-      max-width: calc(100vw - 16px);
-      box-sizing: border-box;
-
-      flex-wrap: nowrap;     /* ✅ jangan turun baris */
-      white-space: nowrap;   /* ✅ jangan melebar ke atas */
+      flex-wrap:nowrap;          /* ✅ jangan turun baris */
+      white-space:nowrap;        /* ✅ jangan bikin tinggi */
+      overflow:hidden;           /* ✅ kalau kepanjangan, potong */
     }
-
     .zoom-dock .zbtn{
-      height:28px;
-      min-width:36px;
-      padding:0 8px;
+      height:32px;
+      min-width:40px;
+      padding:0 10px;
       border-radius:12px;
       border:1px solid rgba(255,255,255,.18);
       background:rgba(0,0,0,.35);
       color:#fff;
       font-weight:900;
       cursor:pointer;
-      flex: 0 0 auto;
+      flex:0 0 auto;
     }
     .zoom-dock .zbtn:active{ transform:scale(.98); }
 
+    /* ✅ slider fleksibel: jangan dorong dock jadi tinggi */
     .zoom-dock .zrange{
-      width:130px;
+      flex:1 1 auto;
+      width:auto;
+      min-width:80px;
       accent-color:#ffffff;
-      flex: 0 0 auto;
     }
 
     .zoom-dock .zlabel{
       font-size:12px;
       color:#fff;
       opacity:.85;
-      min-width:44px;
+      min-width:52px;
       text-align:right;
-      flex: 0 0 auto;
+      flex:0 0 auto;
     }
 
-    /* ===== TOOLTIP fixed ===== */
     .hint{
       position:fixed;
       z-index:999997;
@@ -215,43 +200,41 @@
     .hint-right{ right:10px; top:50%; transform:translateY(-50%); }
     .hint-bottom{
       left:50%;
-      bottom: calc(var(--dock-safe) + 8px);
+      bottom: calc(var(--dock-h) + env(safe-area-inset-bottom) + 12px);
       transform:translateX(-50%);
     }
 
     @media (max-width:420px){
+      :root{ --dock-h: 60px; }
       .chip-btn{ padding:0 10px; font-size:11px; height:34px; }
       .menu-wrapper .menu-btn{ height:34px; width:40px; }
-      .zoom-dock .zrange{ width:110px; }
-      .zoom-dock .zlabel{ min-width:40px; }
+      .zoom-dock{ height:42px; }
+      .zoom-dock .zlabel{ min-width:48px; }
+      .zoom-dock .zrange{ min-width:60px; }
     }
 
-    /* landscape: dock makin kecil biar area canvas lega */
+    /* ✅ landscape: dock diperkecil lagi biar area mapping lega */
     @media (orientation: landscape){
+      :root{ --dock-h: 56px; }
       .zoom-dock{
-        height:34px;
-        padding:5px 7px;
-        border-radius:12px;
-        bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+        height:40px;
+        padding:5px 8px;
+        width: min(460px, calc(100vw - 16px));
       }
-      .zoom-dock .zbtn{ height:24px; min-width:34px; padding:0 7px; }
-      .zoom-dock .zrange{ width:120px; }
-      .zoom-dock .zlabel{ font-size:11px; min-width:38px; }
-      :root{ --dock-safe: calc(48px + env(safe-area-inset-bottom, 0px)); }
+      .zoom-dock .zbtn{ height:30px; min-width:38px; }
+      .zoom-dock .zlabel{ min-width:46px; font-size:11px; }
     }
 
-    /* kunci interaksi canvas */
+    /* ✅ drag titik canvas */
     #curveCanvas{ touch-action:none; }
   </style>
 </head>
 
 <body>
-
 <div id="appRoot">
 
   <header class="topbar">
     <div class="title">CDI MAPPING</div>
-
     <div class="top-actions">
       <button id="installBtn" class="chip-btn" type="button" style="display:none;">⬇ INSTALL</button>
 
@@ -310,7 +293,6 @@
     const h = getH();
     document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
   }
-
   setVH();
   window.addEventListener('resize', setVH, {passive:true});
   if (window.visualViewport){
@@ -359,13 +341,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const installBtn = document.getElementById('installBtn');
   let deferredPrompt = null;
-
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
     installBtn.style.display = 'inline-flex';
   });
-
   installBtn.addEventListener('click', async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
@@ -373,7 +353,6 @@ document.addEventListener('DOMContentLoaded', () => {
     deferredPrompt = null;
     installBtn.style.display = 'none';
   });
-
   window.addEventListener('appinstalled', () => {
     installBtn.style.display = 'none';
   });
