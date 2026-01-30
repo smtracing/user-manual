@@ -1,6 +1,6 @@
 {
   "name": "SMT Racing - CDI Mapping",
-  "short_name": "CDI MAPP",
+  "short_name": "CDI Map",
   "start_url": "/cdi-mapping.html",
   "scope": "/",
   "display": "standalone",
@@ -11,5 +11,6 @@
     { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }
+
 
 
