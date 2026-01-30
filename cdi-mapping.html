@@ -124,25 +124,33 @@
     /* background */
     .bg-image{ position:fixed; inset:0; }
 
-    /* ===== DOCK ZOOM bawah ===== */
+    /* ===== DOCK ZOOM bawah (ANTI MELEBAR SAAT ZOOM OUT) ===== */
     .zoom-dock{
-      position:absolute;
+      position:fixed; /* dari absolute -> fixed supaya stabil */
       left:50%;
-      bottom:10px;
+      bottom: calc(10px + env(safe-area-inset-bottom, 0px));
       transform:translateX(-50%);
       z-index:999998;
+
       height:46px;
       display:flex;
       align-items:center;
       gap:10px;
       padding:8px 10px;
+
       border-radius:14px;
       border:1px solid rgba(255,255,255,.16);
       background:rgba(0,0,0,.40);
       backdrop-filter: blur(10px);
       -webkit-tap-highlight-color: transparent;
       user-select:none;
+
+      /* ✅ kunci lebar dock */
+      width: fit-content;
+      max-width: calc(100vw - 20px);
+      box-sizing: border-box;
     }
+
     .zoom-dock .zbtn{
       height:34px;
       min-width:40px;
@@ -153,15 +161,24 @@
       color:#fff;
       font-weight:900;
       cursor:pointer;
+      flex: 0 0 auto;
     }
     .zoom-dock .zbtn:active{ transform:scale(.98); }
-    .zoom-dock .zrange{ width:140px; accent-color:#ffffff; }
+
+    /* ✅ slider jangan flex membesar */
+    .zoom-dock .zrange{
+      width:140px;
+      accent-color:#ffffff;
+      flex: 0 0 auto;
+    }
+
     .zoom-dock .zlabel{
       font-size:12px;
       color:#fff;
       opacity:.85;
       min-width:44px;
       text-align:right;
+      flex: 0 0 auto;
     }
 
     /* ===== TOOLTIP fixed ===== */
@@ -190,6 +207,25 @@
       .menu-wrapper .menu-btn{ height:34px; width:40px; }
       .zoom-dock .zrange{ width:110px; }
       .zoom-dock .zlabel{ min-width:40px; }
+    }
+
+    /* ✅ landscape: dock lebih ringkas biar area mapping lega */
+    @media (orientation: landscape){
+      :root{ --dock-h: 44px; } /* workspace dapat ruang lebih */
+      .zoom-dock{
+        height:38px;
+        padding:6px 8px;
+        border-radius:12px;
+        bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+      }
+      .zoom-dock .zbtn{
+        height:28px;
+        min-width:36px;
+        padding:0 8px;
+        border-radius:10px;
+      }
+      .zoom-dock .zrange{ width:120px; }
+      .zoom-dock .zlabel{ font-size:11px; min-width:40px; }
     }
 
     /* ===== KUNCI INTERAKSI CANVAS DI HP (BIAR DRAG TITIK JALAN) ===== */
@@ -253,7 +289,6 @@
 /* ===== FIX VH untuk HP (rotate + address bar) ===== */
 (function(){
   function getH(){
-    // visualViewport lebih akurat di Android
     if (window.visualViewport && typeof window.visualViewport.height === "number"){
       return window.visualViewport.height;
     }
@@ -266,16 +301,12 @@
   }
 
   setVH();
-
-  // resize biasa
   window.addEventListener('resize', setVH, {passive:true});
 
-  // visualViewport resize (address bar / rotate)
   if (window.visualViewport){
     window.visualViewport.addEventListener('resize', setVH, {passive:true});
   }
 
-  // orientationchange perlu delay (biar innerHeight sudah update)
   window.addEventListener('orientationchange', () => {
     setTimeout(setVH, 250);
     setTimeout(setVH, 600);
