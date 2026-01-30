@@ -23,6 +23,7 @@
       --topbar-h: 56px;
       --dock-h: 56px;
       --ui-zoom: 1;
+      --vh: 1vh; /* di-set oleh JS */
     }
 
     html, body{
@@ -89,9 +90,9 @@
       z-index:999999;
     }
 
-    /* ===== ROOT NORMAL ===== */
+    /* ===== ROOT (pakai --vh biar akurat saat HP diputar / address bar berubah) ===== */
     #appRoot{
-      height:100vh;
+      height: calc(var(--vh) * 100);
       width:100vw;
       position:relative;
       overflow:hidden;
@@ -190,7 +191,7 @@
     }
 
     /* ===== KUNCI INTERAKSI CANVAS DI HP (BIAR DRAG TITIK JALAN) ===== */
-    /* kalau ID canvas kamu berbeda, ini tidak merusak apa-apa; yang utama tetap di JS drag */
+    /* Kalau ID canvas beda, aman (tidak ngaruh). */
     #curveCanvas{ touch-action:none; }
   </style>
 </head>
@@ -203,7 +204,7 @@
     <div class="title">CDI MAPPING</div>
 
     <div class="top-actions">
-      <!-- ROTATE dihapus (LANDSCAPE pakai rotate HP saja) -->
+      <!-- ROTATE / LAND dihapus. Orientasi ikut HP. -->
 
       <button id="installBtn" class="chip-btn" type="button" style="display:none;">⬇ INSTALL</button>
 
@@ -254,6 +255,18 @@
 <script src="cdi/js/cdi-dual/cdi-dual-live.js"></script>
 
 <script src="cdi/js/cdi-racing/cdi-racing.js"></script>
+
+<script>
+/* ===== FIX VH untuk HP (address bar & rotate) ===== */
+(function(){
+  function setVH(){
+    document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+  }
+  setVH();
+  window.addEventListener('resize', setVH, {passive:true});
+  window.addEventListener('orientationchange', setVH, {passive:true});
+})();
+</script>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
