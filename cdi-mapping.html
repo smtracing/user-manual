@@ -21,12 +21,17 @@
   <style>
     :root{
       --topbar-h: 56px;
-      --dock-h: 56px;
+
+      /* zoom UI hanya untuk workspace */
       --ui-zoom: 1;
-      --vh: 1vh; /* di-set oleh JS */
+
+      /* vh akurat android rotate */
+      --vh: 1vh;
+
+      /* ukuran dock (buat tooltip saja) */
+      --dock-safe: calc(54px + env(safe-area-inset-bottom, 0px));
     }
 
-    /* ✅ FIX: jangan pakai height:100% untuk Android rotate */
     html, body{
       width:100%;
       height: calc(var(--vh) * 100);
@@ -92,7 +97,7 @@
       z-index:999999;
     }
 
-    /* ✅ FIX: root benar-benar ikut vh */
+    /* root ikut vh */
     #appRoot{
       height: calc(var(--vh) * 100);
       width:100vw;
@@ -100,16 +105,21 @@
       overflow:hidden;
     }
 
-    /* ===== WORKSPACE 1 layar ===== */
+    /* ===== WORKSPACE 1 layar =====
+       ✅ PENTING: bottom:0 (dock tidak “memakan” tinggi layout),
+       jadi zoom out tidak bikin area mapping makin sempit.
+    */
     #workspace{
       position:absolute;
       top:var(--topbar-h);
       left:0;
       right:0;
-      bottom:var(--dock-h);
+      bottom:0;                 /* ✅ ganti dari bottom:var(--dock-h) */
       overflow:auto;
       -webkit-overflow-scrolling:touch;
       overscroll-behavior:contain;
+      padding-bottom: var(--dock-safe); /* ✅ biar konten tidak ketutup dock */
+      box-sizing:border-box;
     }
     #workspace::-webkit-scrollbar{ display:none; }
 
@@ -124,37 +134,42 @@
     /* background */
     .bg-image{ position:fixed; inset:0; }
 
-    /* ===== DOCK ZOOM bawah (ANTI MELEBAR SAAT ZOOM OUT) ===== */
+    /* ===== DOCK ZOOM bawah =====
+       ✅ fixed + ukuran tetap + tidak wrap
+    */
     .zoom-dock{
-      position:fixed; /* dari absolute -> fixed supaya stabil */
+      position:fixed;
       left:50%;
-      bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+      bottom: calc(8px + env(safe-area-inset-bottom, 0px));
       transform:translateX(-50%);
       z-index:999998;
 
-      height:46px;
+      height:40px;
       display:flex;
       align-items:center;
-      gap:10px;
-      padding:8px 10px;
+      gap:8px;
+      padding:6px 8px;
 
       border-radius:14px;
       border:1px solid rgba(255,255,255,.16);
       background:rgba(0,0,0,.40);
       backdrop-filter: blur(10px);
+
       -webkit-tap-highlight-color: transparent;
       user-select:none;
 
-      /* ✅ kunci lebar dock */
       width: fit-content;
-      max-width: calc(100vw - 20px);
+      max-width: calc(100vw - 16px);
       box-sizing: border-box;
+
+      flex-wrap: nowrap;     /* ✅ jangan turun baris */
+      white-space: nowrap;   /* ✅ jangan melebar ke atas */
     }
 
     .zoom-dock .zbtn{
-      height:34px;
-      min-width:40px;
-      padding:0 10px;
+      height:28px;
+      min-width:36px;
+      padding:0 8px;
       border-radius:12px;
       border:1px solid rgba(255,255,255,.18);
       background:rgba(0,0,0,.35);
@@ -165,9 +180,8 @@
     }
     .zoom-dock .zbtn:active{ transform:scale(.98); }
 
-    /* ✅ slider jangan flex membesar */
     .zoom-dock .zrange{
-      width:140px;
+      width:130px;
       accent-color:#ffffff;
       flex: 0 0 auto;
     }
@@ -199,36 +213,34 @@
     }
     .hint.show{ opacity:1; transform: translateY(0); }
     .hint-right{ right:10px; top:50%; transform:translateY(-50%); }
-    .hint-bottom{ left:50%; bottom:calc(var(--dock-h) + 12px); transform:translateX(-50%); }
+    .hint-bottom{
+      left:50%;
+      bottom: calc(var(--dock-safe) + 8px);
+      transform:translateX(-50%);
+    }
 
     @media (max-width:420px){
-      :root{ --dock-h: 60px; }
       .chip-btn{ padding:0 10px; font-size:11px; height:34px; }
       .menu-wrapper .menu-btn{ height:34px; width:40px; }
       .zoom-dock .zrange{ width:110px; }
       .zoom-dock .zlabel{ min-width:40px; }
     }
 
-    /* ✅ landscape: dock lebih ringkas biar area mapping lega */
+    /* landscape: dock makin kecil biar area canvas lega */
     @media (orientation: landscape){
-      :root{ --dock-h: 44px; } /* workspace dapat ruang lebih */
       .zoom-dock{
-        height:38px;
-        padding:6px 8px;
+        height:34px;
+        padding:5px 7px;
         border-radius:12px;
         bottom: calc(6px + env(safe-area-inset-bottom, 0px));
       }
-      .zoom-dock .zbtn{
-        height:28px;
-        min-width:36px;
-        padding:0 8px;
-        border-radius:10px;
-      }
+      .zoom-dock .zbtn{ height:24px; min-width:34px; padding:0 7px; }
       .zoom-dock .zrange{ width:120px; }
-      .zoom-dock .zlabel{ font-size:11px; min-width:40px; }
+      .zoom-dock .zlabel{ font-size:11px; min-width:38px; }
+      :root{ --dock-safe: calc(48px + env(safe-area-inset-bottom, 0px)); }
     }
 
-    /* ===== KUNCI INTERAKSI CANVAS DI HP (BIAR DRAG TITIK JALAN) ===== */
+    /* kunci interaksi canvas */
     #curveCanvas{ touch-action:none; }
   </style>
 </head>
@@ -294,7 +306,6 @@
     }
     return window.innerHeight;
   }
-
   function setVH(){
     const h = getH();
     document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
@@ -302,11 +313,9 @@
 
   setVH();
   window.addEventListener('resize', setVH, {passive:true});
-
   if (window.visualViewport){
     window.visualViewport.addEventListener('resize', setVH, {passive:true});
   }
-
   window.addEventListener('orientationchange', () => {
     setTimeout(setVH, 250);
     setTimeout(setVH, 600);
@@ -316,8 +325,6 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-
-  // ===== ZOOM UI =====
   const zoomRange = document.getElementById('zoomRange');
   const zoomInBtn = document.getElementById('zoomInBtn');
   const zoomOutBtn = document.getElementById('zoomOutBtn');
@@ -336,7 +343,6 @@ document.addEventListener('DOMContentLoaded', () => {
   zoomInBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) + 5));
   zoomOutBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) - 5));
 
-  // ===== TOOLTIP =====
   const hintRight = document.getElementById('hintRight');
   const hintBottom = document.getElementById('hintBottom');
   let hintTimer = null;
@@ -351,7 +357,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   showHints();
 
-  // ===== INSTALL (PWA) =====
   const installBtn = document.getElementById('installBtn');
   let deferredPrompt = null;
 
@@ -373,7 +378,6 @@ document.addEventListener('DOMContentLoaded', () => {
     installBtn.style.display = 'none';
   });
 
-  // ===== SW =====
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
   }
