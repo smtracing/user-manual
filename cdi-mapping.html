@@ -22,7 +22,7 @@
     :root{
       --topbar-h: 56px;
       --dock-h: 56px;
-      --dock-h-rot: 44px;     /* dock lebih kecil saat rotate */
+      --dock-h-rot: 44px;
       --ui-zoom: 1;
 
       --safeT: env(safe-area-inset-top);
@@ -104,19 +104,15 @@
       overflow:hidden;
     }
 
-    /* ===== ROTATE MODE (TANPA GESER KIRI) ===== */
+    /* ===== ROTATE MODE (pas, tidak geser kiri) ===== */
     body.rotate-mode{ overflow:hidden; }
     body.rotate-mode #appRoot{
       position:fixed;
       top:0;
       left:0;
-
-      /* swap ukuran supaya pas landscape */
       width:100vh;
       height:100vw;
-
       transform-origin: top left;
-      /* PENTING: NO translateX -> biar tidak “kebablasan” */
       transform: rotate(90deg) translateY(-100%);
     }
 
@@ -132,9 +128,7 @@
       overscroll-behavior:contain;
       padding-bottom: calc(6px + var(--safeB));
     }
-    body.rotate-mode #workspace{
-      bottom:var(--dock-h-rot);
-    }
+    body.rotate-mode #workspace{ bottom:var(--dock-h-rot); }
 
     #workspace::-webkit-scrollbar{ display:none; }
 
@@ -168,7 +162,6 @@
       -webkit-tap-highlight-color: transparent;
       user-select:none;
     }
-
     .zoom-dock .zbtn{
       height:34px;
       min-width:40px;
@@ -190,12 +183,11 @@
       text-align:right;
     }
 
-    /* rotate: dock pindah ke tepi kiri bawah + lebih kecil (biar mapping lega) */
+    /* rotate: dock kecil + pindah kiri bawah (biar mapping lega) */
     body.rotate-mode .zoom-dock{
       left: calc(12px + var(--safeL));
       bottom: calc(10px + var(--safeB));
       transform:none;
-
       height:38px;
       padding:6px 8px;
       border-radius:12px;
@@ -208,10 +200,7 @@
       border-radius:10px;
     }
     body.rotate-mode .zoom-dock .zrange{ width:90px; }
-    body.rotate-mode .zoom-dock .zlabel{
-      min-width:38px;
-      font-size:11px;
-    }
+    body.rotate-mode .zoom-dock .zlabel{ min-width:38px; font-size:11px; }
 
     /* ===== TOOLTIP fixed ===== */
     .hint{
@@ -251,11 +240,24 @@
       .zoom-dock .zrange{ width:110px; }
       .zoom-dock .zlabel{ min-width:40px; }
     }
+
+    /* ============================
+       FIX HP: grafis bisa “drag titik”
+       - matikan scroll di area canvas/plot
+       - aktifkan touch/pointer yang tepat
+    ============================ */
+    #contentArea canvas,
+    #contentArea svg,
+    #contentArea .plot,
+    #contentArea .graph{
+      touch-action: none;         /* penting: supaya finger drag tidak jadi scroll */
+      -webkit-user-select: none;
+      user-select: none;
+    }
   </style>
 </head>
 
 <body>
-
 <div id="appRoot">
 
   <header class="topbar">
@@ -263,7 +265,6 @@
 
     <div class="top-actions">
       <button id="rotateBtn" class="chip-btn" type="button">⟳ ROTATE</button>
-
       <button id="installBtn" class="chip-btn" type="button" style="display:none;">⬇ INSTALL</button>
 
       <div class="menu-wrapper">
@@ -379,6 +380,124 @@ document.addEventListener('DOMContentLoaded', () => {
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
   }
+
+  /* =========================================================
+     FIX HP: titik kurva bisa diklik & drag (seperti PC)
+     Masalah utama:
+     1) kode map biasanya pakai mousedown/mousemove -> HP cuma touch
+     2) UI zoom pakai CSS scale -> koordinat event jadi “melenceng”
+     Solusi:
+     - konversi touch/pointer -> mouse event
+     - koreksi clientX/clientY sesuai --ui-zoom
+     - matikan scroll workspace saat drag di canvas
+  ========================================================= */
+  const workspace = document.getElementById('workspace');
+  const contentArea = document.getElementById('contentArea');
+
+  function getUiZoom(){
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom').trim();
+    const z = parseFloat(v);
+    return (isFinite(z) && z > 0) ? z : 1;
+  }
+
+  // dispatch mouse event dengan koordinat yang sudah dikoreksi zoom
+  function dispatchMouse(el, type, srcClientX, srcClientY, buttons=1){
+    const rect = el.getBoundingClientRect();
+    const zoom = getUiZoom();
+
+    // koordinat “terlihat” (scaled) -> ubah ke “asli” (unscaled)
+    const xScaled = srcClientX - rect.left;
+    const yScaled = srcClientY - rect.top;
+
+    const x = xScaled / zoom;
+    const y = yScaled / zoom;
+
+    const clientX = rect.left + x;
+    const clientY = rect.top + y;
+
+    const ev = new MouseEvent(type, {
+      bubbles:true,
+      cancelable:true,
+      clientX, clientY,
+      buttons,
+      button:0
+    });
+    el.dispatchEvent(ev);
+  }
+
+  function attachToCanvas(canvas){
+    if (!canvas || canvas.dataset.hpDragFix === "1") return;
+    canvas.dataset.hpDragFix = "1";
+
+    // penting supaya gesture tidak jadi scroll/zoom browser
+    canvas.style.touchAction = "none";
+
+    let active = false;
+    let activeId = null;
+
+    function lockScroll(lock){
+      if (lock){
+        // tahan scroll workspace saat finger drag titik
+        workspace.style.overflow = "hidden";
+      }else{
+        workspace.style.overflow = "auto";
+      }
+    }
+
+    // TOUCH (utama)
+    canvas.addEventListener('touchstart', (e) => {
+      if (!e.touches || e.touches.length !== 1) return;
+      active = true;
+      const t = e.touches[0];
+      activeId = t.identifier;
+      lockScroll(true);
+      e.preventDefault();
+      dispatchMouse(canvas, 'mousedown', t.clientX, t.clientY, 1);
+    }, {passive:false});
+
+    canvas.addEventListener('touchmove', (e) => {
+      if (!active || !e.touches) return;
+      const t = Array.from(e.touches).find(x => x.identifier === activeId) || e.touches[0];
+      if (!t) return;
+      e.preventDefault();
+      dispatchMouse(canvas, 'mousemove', t.clientX, t.clientY, 1);
+    }, {passive:false});
+
+    function endTouch(e){
+      if (!active) return;
+      active = false;
+      activeId = null;
+      lockScroll(false);
+      e.preventDefault();
+      // gunakan changedTouches jika ada
+      const t = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : null;
+      if (t) dispatchMouse(canvas, 'mouseup', t.clientX, t.clientY, 0);
+      else dispatchMouse(canvas, 'mouseup', 0, 0, 0);
+    }
+    canvas.addEventListener('touchend', endTouch, {passive:false});
+    canvas.addEventListener('touchcancel', endTouch, {passive:false});
+
+    // POINTER (cadangan)
+    canvas.addEventListener('pointerdown', (e) => {
+      // jika browser sudah handle pointer, pastikan tidak jadi scroll
+      if (e.pointerType === 'touch'){
+        e.preventDefault();
+      }
+    }, {passive:false});
+  }
+
+  function scanAndAttach(){
+    // biasanya grafik dibuat pakai <canvas>. kalau ada beberapa canvas, semua dipasang.
+    const canvases = contentArea.querySelectorAll('canvas');
+    canvases.forEach(attachToCanvas);
+  }
+
+  // pertama kali
+  scanAndAttach();
+
+  // kalau user ganti tipe CDI, isi contentArea berubah -> attach lagi otomatis
+  const mo = new MutationObserver(() => scanAndAttach());
+  mo.observe(contentArea, {childList:true, subtree:true});
 });
 </script>
 
