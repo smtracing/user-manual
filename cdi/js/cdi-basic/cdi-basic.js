@@ -366,38 +366,121 @@ function redraw_BASIC() {
 /* =========================================================
    DRAG TITIK
 ========================================================= */
-function enableDrag_BASIC() {
-  const c = document.getElementById("curveCanvas");
+function enableDrag_BASIC(){
+  const c = document.getElementById("curveCanvas_BASIC");
+  if(!c) return;
+
+  // HP: supaya titik bisa di-drag (tanpa halaman ikut geser)
+  c.style.touchAction = "none";
+
+  let dragging = false;
   let idx = null;
+  let activePointerId = null;
 
-  c.onmousedown = e => {
-    const r = c.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    const cap = BASIC.pickup ?? TIMING_MAX;
+  // pointer -> koordinat canvas (memperhitungkan zoom CSS / rotate wrapper)
+  function pointerToCanvas(e){
+    const rect = c.getBoundingClientRect();
+    const sx = c.width  / rect.width;
+    const sy = c.height / rect.height;
+    return {
+      x: (e.clientX - rect.left) * sx,
+      y: (e.clientY - rect.top)  * sy
+    };
+  }
 
-    BASIC.curve.forEach((v, i) => {
-      if (BASIC.limiter && rpmPoints_BASIC[i] > BASIC.limiter) return;
-      const x = PLOT_LEFT + (i / (BASIC.curve.length - 1)) * (c.width - PLOT_LEFT - AXIS_RIGHT_PADDING);
-      const y = AXIS_TOP_PADDING + (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING)
-        - (Math.min(v, cap) / cap) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
-      if (Math.hypot(mx - x, my - y) < 8) idx = i;
-    });
-  };
+  function dxStep(){
+    return (c.width - PLOT_LEFT - AXIS_RIGHT_PADDING) / (rpmPoints_BASIC.length - 1);
+  }
 
-  c.onmousemove = e => {
-    if (idx === null) return;
-    const r = c.getBoundingClientRect();
-    const cap = BASIC.pickup ?? TIMING_MAX;
-    let val = cap * (1 - (e.clientY - r.top - AXIS_TOP_PADDING) / (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING));
+  function pickIndexAt(x){
+    const dx = dxStep();
+    const i = Math.round((x - PLOT_LEFT) / dx);
+    if (i < 0 || i >= rpmPoints_BASIC.length) return null;
+    return i;
+  }
+
+  function setFromY(i, y){
+    const cap = (BASIC.pickup ?? TIMING_MAX);
+    let val = cap * (1 - (y - AXIS_TOP_PADDING) / (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING));
     val = Math.max(TIMING_MIN, Math.min(cap, val));
-    BASIC.curve[idx] = val;
-    const inp = document.querySelector(`#rpmTable tr:nth-child(${idx + 2}) input`);
-    if (inp) inp.value = val.toFixed(1);
-    redraw_BASIC();
-  };
 
-  window.onmouseup = () => idx = null;
+    BASIC.curve[i] = val;
+
+    const inp = document.querySelector(`#rpmTable tr:nth-child(${i + 2}) input`);
+    if (inp) inp.value = val.toFixed(1);
+
+    redraw_BASIC();
+    redrawAFRDetail_BASIC();
+  }
+
+  function onDown(e){
+    // hanya primary button / touch
+    if (e.button !== undefined && e.button !== 0) return;
+
+    const p = pointerToCanvas(e);
+    const i = pickIndexAt(p.x);
+    if (i === null) return;
+
+    // wajib dekat titik, supaya tidak salah drag
+    const dx = dxStep();
+    const cap = (BASIC.pickup ?? TIMING_MAX);
+    const px = PLOT_LEFT + i * dx;
+
+    const curVal = BASIC.curve[i];
+    const py = AXIS_TOP_PADDING + (1 - (curVal / cap)) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
+
+    const hitR = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) ? 18 : 12;
+    if (Math.hypot(p.x - px, p.y - py) > hitR) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    dragging = true;
+    idx = i;
+    activePointerId = (e.pointerId !== undefined) ? e.pointerId : null;
+
+    try {
+      if (c.setPointerCapture && activePointerId !== null) c.setPointerCapture(activePointerId);
+    } catch(_){}
+
+    setFromY(idx, p.y);
+  }
+
+  function onMove(e){
+    if (!dragging) return;
+    if (activePointerId !== null && e.pointerId !== activePointerId) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const p = pointerToCanvas(e);
+    setFromY(idx, p.y);
+  }
+
+  function end(e){
+    if (!dragging) return;
+    if (activePointerId !== null && e.pointerId !== undefined && e.pointerId !== activePointerId) return;
+
+    dragging = false;
+    idx = null;
+
+    try {
+      if (c.releasePointerCapture && activePointerId !== null) c.releasePointerCapture(activePointerId);
+    } catch(_){}
+
+    activePointerId = null;
+  }
+
+  // jangan pakai window.onmouseup / onmousemove (biar tidak bentrok)
+  c.onmousedown = null;
+  c.onmousemove = null;
+
+  c.addEventListener("pointerdown", onDown, { passive:false });
+  c.addEventListener("pointermove", onMove, { passive:false });
+  window.addEventListener("pointerup", end, { passive:false });
+  window.addEventListener("pointercancel", end, { passive:false });
 }
+
 
 /* =========================================================
    SEND DATA MAP KE ESP
