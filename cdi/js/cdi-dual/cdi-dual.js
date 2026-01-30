@@ -858,30 +858,58 @@ function drawDualCurve(ctx, map, index, alpha) {
 function enableDrag_DUAL() {
   const c = document.getElementById("curveCanvas");
   if (!c) return;
+
+  // wajib: cegah browser nganggap ini gesture scroll/zoom
+  c.style.touchAction = "none";
+
+  let active = false;
   let idx = null;
 
-  c.onmousedown = e => {
-    const r = c.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
+  function getScale(cnv) {
+    const r = cnv.getBoundingClientRect();
+    // skala dari CSS px -> canvas px (penting saat parent di-scale)
+    const sx = cnv.width / r.width;
+    const sy = cnv.height / r.height;
+    return { r, sx, sy };
+  }
+
+  function pickPoint(mx, my) {
+    const map = DUAL.maps[DUAL.activeMap];
     const cap = DUAL.pickup ?? TIMING_MAX;
 
-    DUAL.maps[DUAL.activeMap].curve.forEach((v, i) => {
-      if (DUAL.maps[DUAL.activeMap].limiter && rpmPoints_BASIC[i] > DUAL.maps[DUAL.activeMap].limiter) return;
+    const plotW = c.width - PLOT_LEFT - AXIS_RIGHT_PADDING;
+    const plotH = c.height - AXIS_BOTTOM - AXIS_TOP_PADDING;
 
-      const x = PLOT_LEFT + (i / (rpmPoints_BASIC.length - 1)) * (c.width - PLOT_LEFT - AXIS_RIGHT_PADDING);
-      const y = AXIS_TOP_PADDING + (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING) -
-        (Math.min(v, cap) / cap) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
+    let found = null;
+    let bestD = 9999;
 
-      if (Math.hypot(mx - x, my - y) < 8) idx = i;
-    });
-  };
+    for (let i = 0; i < map.curve.length; i++) {
+      if (map.limiter && rpmPoints_BASIC[i] > map.limiter) continue;
 
-  c.onmousemove = e => {
+      const v = Math.min(map.curve[i], cap);
+      const x = PLOT_LEFT + (i / (rpmPoints_BASIC.length - 1)) * plotW;
+      const y = AXIS_TOP_PADDING + plotH - (v / cap) * plotH;
+
+      const d = Math.hypot(mx - x, my - y);
+      if (d < 10 && d < bestD) { // radius klik
+        bestD = d;
+        found = i;
+      }
+    }
+    return found;
+  }
+
+  function updateFromPointer(clientX, clientY) {
     if (idx === null) return;
-    const r = c.getBoundingClientRect();
-    const cap = DUAL.pickup ?? TIMING_MAX;
 
-    let val = cap * (1 - (e.clientY - r.top - AXIS_TOP_PADDING) / (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING));
+    const { r, sx, sy } = getScale(c);
+    const x = (clientX - r.left) * sx;
+    const y = (clientY - r.top) * sy;
+
+    const cap = DUAL.pickup ?? TIMING_MAX;
+    const plotH = c.height - AXIS_BOTTOM - AXIS_TOP_PADDING;
+
+    let val = cap * (1 - (y - AXIS_TOP_PADDING) / plotH);
     val = Math.max(TIMING_MIN, Math.min(cap, val));
 
     DUAL.maps[DUAL.activeMap].curve[idx] = val;
@@ -891,10 +919,48 @@ function enableDrag_DUAL() {
 
     redraw_DUAL();
     redrawAFRDetail_DUAL();
-  };
+  }
 
-  window.onmouseup = () => (idx = null);
+  c.addEventListener("pointerdown", (e) => {
+    // pastikan canvas ukurannya sesuai tampilan (terutama setelah zoom/orientasi)
+    const rect = c.getBoundingClientRect();
+    c.width  = Math.round(rect.width);
+    c.height = Math.round(rect.height);
+
+    const { r, sx, sy } = getScale(c);
+    const mx = (e.clientX - r.left) * sx;
+    const my = (e.clientY - r.top) * sy;
+
+    idx = pickPoint(mx, my);
+    if (idx === null) return;
+
+    active = true;
+    c.setPointerCapture(e.pointerId);
+
+    // cegah scroll/pan kebawa
+    e.preventDefault();
+
+    updateFromPointer(e.clientX, e.clientY);
+  }, { passive: false });
+
+  c.addEventListener("pointermove", (e) => {
+    if (!active) return;
+    e.preventDefault();
+    updateFromPointer(e.clientX, e.clientY);
+  }, { passive: false });
+
+  function endDrag(e) {
+    if (!active) return;
+    active = false;
+    idx = null;
+    try { c.releasePointerCapture(e.pointerId); } catch {}
+  }
+
+  c.addEventListener("pointerup", endDrag, { passive: true });
+  c.addEventListener("pointercancel", endDrag, { passive: true });
+  c.addEventListener("pointerleave", () => { active = false; idx = null; }, { passive: true });
 }
+
 
 /* =========================================================
    INIT
