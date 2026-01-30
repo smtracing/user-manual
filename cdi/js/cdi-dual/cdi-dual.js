@@ -859,106 +859,123 @@ function enableDrag_DUAL() {
   const c = document.getElementById("curveCanvas");
   if (!c) return;
 
-  // wajib: cegah browser nganggap ini gesture scroll/zoom
+  // biar sentuh di canvas tidak dianggap scroll
   c.style.touchAction = "none";
 
-  let active = false;
   let idx = null;
+  let dragging = false;
 
-  function getScale(cnv) {
-    const r = cnv.getBoundingClientRect();
-    // skala dari CSS px -> canvas px (penting saat parent di-scale)
-    const sx = cnv.width / r.width;
-    const sy = cnv.height / r.height;
-    return { r, sx, sy };
+  function posToCanvas(ev) {
+    const r = c.getBoundingClientRect();
+
+    // scale: ukuran CSS -> ukuran internal canvas
+    const sx = c.width / r.width;
+    const sy = c.height / r.height;
+
+    const x = (ev.clientX - r.left) * sx;
+    const y = (ev.clientY - r.top) * sy;
+    return { x, y };
   }
 
-  function pickPoint(mx, my) {
+  function findPointIndex(mx, my) {
     const map = DUAL.maps[DUAL.activeMap];
     const cap = DUAL.pickup ?? TIMING_MAX;
 
-    const plotW = c.width - PLOT_LEFT - AXIS_RIGHT_PADDING;
-    const plotH = c.height - AXIS_BOTTOM - AXIS_TOP_PADDING;
-
     let found = null;
-    let bestD = 9999;
-
     for (let i = 0; i < map.curve.length; i++) {
       if (map.limiter && rpmPoints_BASIC[i] > map.limiter) continue;
 
-      const v = Math.min(map.curve[i], cap);
-      const x = PLOT_LEFT + (i / (rpmPoints_BASIC.length - 1)) * plotW;
-      const y = AXIS_TOP_PADDING + plotH - (v / cap) * plotH;
+      const x =
+        PLOT_LEFT +
+        (i / (rpmPoints_BASIC.length - 1)) *
+          (c.width - PLOT_LEFT - AXIS_RIGHT_PADDING);
 
-      const d = Math.hypot(mx - x, my - y);
-      if (d < 10 && d < bestD) { // radius klik
-        bestD = d;
+      const y =
+        AXIS_TOP_PADDING +
+        (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING) -
+        (Math.min(map.curve[i], cap) / cap) *
+          (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
+
+      // radius sentuh agak besar biar enak di HP
+      if (Math.hypot(mx - x, my - y) < 14) {
         found = i;
+        break;
       }
     }
     return found;
   }
 
-  function updateFromPointer(clientX, clientY) {
-    if (idx === null) return;
-
-    const { r, sx, sy } = getScale(c);
-    const x = (clientX - r.left) * sx;
-    const y = (clientY - r.top) * sy;
-
+  function applyValueFromY(i, my) {
+    const map = DUAL.maps[DUAL.activeMap];
     const cap = DUAL.pickup ?? TIMING_MAX;
-    const plotH = c.height - AXIS_BOTTOM - AXIS_TOP_PADDING;
 
-    let val = cap * (1 - (y - AXIS_TOP_PADDING) / plotH);
+    let val =
+      cap *
+      (1 -
+        (my - AXIS_TOP_PADDING) /
+          (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING));
+
     val = Math.max(TIMING_MIN, Math.min(cap, val));
+    map.curve[i] = val;
 
-    DUAL.maps[DUAL.activeMap].curve[idx] = val;
-
-    const inp = document.querySelector(`#rpmTable tr:nth-child(${idx + 2}) input`);
+    const inp = document.querySelector(`#rpmTable tr:nth-child(${i + 2}) input`);
     if (inp) inp.value = val.toFixed(1);
 
     redraw_DUAL();
     redrawAFRDetail_DUAL();
   }
 
-  c.addEventListener("pointerdown", (e) => {
-    // pastikan canvas ukurannya sesuai tampilan (terutama setelah zoom/orientasi)
-    const rect = c.getBoundingClientRect();
-    c.width  = Math.round(rect.width);
-    c.height = Math.round(rect.height);
+  function onDown(ev) {
+    const p = posToCanvas(ev);
+    const hit = findPointIndex(p.x, p.y);
 
-    const { r, sx, sy } = getScale(c);
-    const mx = (e.clientX - r.left) * sx;
-    const my = (e.clientY - r.top) * sy;
+    if (hit !== null) {
+      idx = hit;
+      dragging = true;
 
-    idx = pickPoint(mx, my);
-    if (idx === null) return;
+      // kunci pointer ke canvas
+      try { c.setPointerCapture(ev.pointerId); } catch (e) {}
 
-    active = true;
-    c.setPointerCapture(e.pointerId);
-
-    // cegah scroll/pan kebawa
-    e.preventDefault();
-
-    updateFromPointer(e.clientX, e.clientY);
-  }, { passive: false });
-
-  c.addEventListener("pointermove", (e) => {
-    if (!active) return;
-    e.preventDefault();
-    updateFromPointer(e.clientX, e.clientY);
-  }, { passive: false });
-
-  function endDrag(e) {
-    if (!active) return;
-    active = false;
-    idx = null;
-    try { c.releasePointerCapture(e.pointerId); } catch {}
+      ev.preventDefault();
+      ev.stopPropagation();
+    } else {
+      idx = null;
+      dragging = false;
+    }
   }
 
-  c.addEventListener("pointerup", endDrag, { passive: true });
-  c.addEventListener("pointercancel", endDrag, { passive: true });
-  c.addEventListener("pointerleave", () => { active = false; idx = null; }, { passive: true });
+  function onMove(ev) {
+    if (!dragging || idx === null) return;
+
+    const p = posToCanvas(ev);
+    applyValueFromY(idx, p.y);
+
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+
+  function onUp(ev) {
+    if (!dragging) return;
+
+    dragging = false;
+    idx = null;
+
+    try { c.releasePointerCapture(ev.pointerId); } catch (e) {}
+
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+
+  // bersihkan handler lama (kalau sebelumnya pakai onmousedown dll)
+  c.onmousedown = null;
+  c.onmousemove = null;
+  window.onmouseup = null;
+
+  // Pointer Events (jalan di HP + PC)
+  c.addEventListener("pointerdown", onDown, { passive: false });
+  c.addEventListener("pointermove", onMove, { passive: false });
+  c.addEventListener("pointerup", onUp, { passive: false });
+  c.addEventListener("pointercancel", onUp, { passive: false });
 }
 
 
