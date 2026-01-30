@@ -1,99 +1,211 @@
-*{ box-sizing:border-box; margin:0; padding:0; font-family:Arial, Helvetica, sans-serif; }
+/* =========================================================
+   SMT Racing — CDI STYLE (FULL)
+   - Orientation fix pakai --vh (di-set dari HTML script setVH)
+   - Tinggi content pakai calc((--vh*100) - --topbar-h) (bukan 100vh)
+========================================================= */
 
-body{ background:#0e1016; color:#eaeaea; overflow:hidden; }
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+  font-family:Arial, Helvetica, sans-serif;
+}
 
+:root{
+  --topbar-h: 52px;   /* tinggi header */
+  --vh: 1vh;          /* di-update oleh script setVH() */
+}
+
+/* Base */
+html, body{
+  height:100%;
+  margin:0;
+  background:#0e1016;
+  color:#eaeaea;
+  overflow:hidden;
+  overscroll-behavior:none;
+}
+
+/* ===== TOPBAR ===== */
 .topbar{
-  height:52px; padding:0 14px;
-  display:flex; justify-content:space-between; align-items:center;
+  height:var(--topbar-h);
+  padding:0 14px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
   border-bottom:1px solid #2a2f45;
 }
-.title{ font-weight:bold; letter-spacing:1px; }
+.title{
+  font-weight:bold;
+  letter-spacing:1px;
+}
 
+/* ===== MENU ===== */
 .menu-wrapper{ position:relative; }
-.menu-btn{ font-size:22px; background:none; border:none; color:#fff; cursor:pointer; }
+.menu-btn{
+  font-size:22px;
+  background:none;
+  border:none;
+  color:#fff;
+  cursor:pointer;
+  -webkit-tap-highlight-color: transparent;
+}
 
 .menu-dropdown{
-  position:absolute; right:0; top:34px;
-  background:#1a1d2a; border:1px solid #2a2f45;
-  width: 220px;       /* lebar kotak */
-  max-width: 92vw;    /* biar aman di layar kecil */
+  position:absolute;
+  right:0;
+  top:34px;
+  background:#1a1d2a;
+  border:1px solid #2a2f45;
+  width:220px;        /* lebar kotak */
+  max-width:92vw;     /* aman di layar kecil */
   z-index:20;
 }
-
-.menu-dropdown div{ padding:10px 14px; cursor:pointer; }
-.menu-dropdown div:hover{ background:#4b5cff; }
+.menu-dropdown div{
+  padding:10px 14px;
+  cursor:pointer;
+}
+.menu-dropdown div:hover{
+  background:#4b5cff;
+}
 .hidden{ display:none; }
 
+/* ===== BACKGROUND IMAGE ===== */
 .bg-image{
-  position:fixed; inset:0;
+  position:fixed;
+  inset:0;
   background:url("../img/bg-cdi.png") center center / 800px auto no-repeat;
-  opacity:0.12; pointer-events:none;
+  opacity:0.12;
+  pointer-events:none;
 }
 
+/* ===== CONTENT =====
+   PENTING: jangan pakai 100vh di HP
+   pakai --vh yang dihitung dari window.innerHeight
+*/
 .content{
   padding:18px;
-  height:calc(100vh - 52px);
+  height: calc((var(--vh) * 100) - var(--topbar-h));
   overflow:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+}
+.content::-webkit-scrollbar{ display:none; }
+
+.empty{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+.empty-text{
+  color:#9a9a9a;
+  letter-spacing:1px;
 }
 
-.empty{ display:flex; justify-content:center; align-items:center; }
-.empty-text{ color:#9a9a9a; letter-spacing:1px; }
-
+/* ===== TOOLBAR ATAS MAP ===== */
 .map-toolbar{
-  display:flex; justify-content:flex-end; margin-bottom:8px;
+  display:flex;
+  justify-content:flex-end;
+  margin-bottom:8px;
 }
 .toolbar-right{
-  display:flex; align-items:center; gap:10px;
+  display:flex;
+  align-items:center;
+  gap:10px;
   background:rgba(14,16,22,0.65);
   border:1px solid #2a2f45;
   padding:6px 8px;
 }
 .toolbar-right label{
-  font-size:12px; color:#cfd3ff;
-  display:flex; align-items:center; gap:6px;
+  font-size:12px;
+  color:#cfd3ff;
+  display:flex;
+  align-items:center;
+  gap:6px;
 }
 .toolbar-right input{
-  width:100px; background:#101320;
-  border:1px solid #2a2f45; color:#fff; padding:3px 6px;
+  width:100px;
+  background:#101320;
+  border:1px solid #2a2f45;
+  color:#fff;
+  padding:3px 6px;
 }
+
 #sendBtn{
-  background:#4b5cff; color:#fff;
-  border:none; padding:6px 12px; cursor:pointer;
+  background:#4b5cff;
+  color:#fff;
+  border:none;
+  padding:6px 12px;
+  cursor:pointer;
 }
 .send-status{ min-width:160px; font-size:12px; }
 .send-ok{ color:#4cff8f; }
 .send-fail{ color:#ff6b6b; }
 .send-prog{ color:#ffd36b; }
 
+/* ===== LAYOUT KURVA ===== */
 .curve-layout{
   display:grid;
   grid-template-columns:180px 1fr;
   gap:10px;
 }
 
+/* kiri: tabel rpm/timing */
 .curve-left{
   background:rgba(14,16,22,0.65);
   border:1px solid #2a2f45;
-  max-height:360px; overflow-y:auto;
+  max-height:360px;
+  overflow-y:auto;
 }
+.curve-left::-webkit-scrollbar{ display:none; }
 
-.rpm-table{ width:100%; border-collapse:collapse; font-size:12px; }
-.rpm-table th,.rpm-table td{
+.rpm-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:12px;
+}
+.rpm-table th,
+.rpm-table td{
   border-bottom:1px solid #2a2f45;
-  padding:4px 6px; text-align:right;
+  padding:4px 6px;
+  text-align:right;
 }
 .rpm-table th{
-  background:#1a1d2a; color:#cfd3ff;
-  position:sticky; top:0;
+  background:#1a1d2a;
+  color:#cfd3ff;
+  position:sticky;
+  top:0;
 }
 .rpm-table input{
-  width:60px; background:#101320;
-  border:none; color:#fff; text-align:right;
+  width:60px;
+  background:#101320;
+  border:none;
+  color:#fff;
+  text-align:right;
 }
 
+/* kanan: canvas */
 .curve-canvas{
-  width:100%; height:360px;
+  width:100%;
+  height:360px;
   background:rgba(14,16,22,0.65);
   border:1px solid #2a2f45;
   cursor:crosshair;
+  touch-action:none; /* penting biar drag titik di HP tidak dianggap scroll */
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width:420px){
+  .content{ padding:14px; }
+  .toolbar-right{ gap:8px; }
+  .toolbar-right input{ width:92px; }
+  .send-status{ min-width:120px; }
+}
+
+/* saat landscape, biar lebih lega & tidak “kepanjangan” */
+@media (orientation:landscape){
+  :root{ --topbar-h: 48px; }
+  .content{ padding:12px; }
+  .curve-left{ max-height:300px; }
+  .curve-canvas{ height:300px; }
 }
