@@ -1,8 +1,9 @@
+
 {
-  "name": "SMT Racing - DYNO ROAD",
-  "short_name": "DYNO",
-  "start_url": "/dyno/dyno-road.html",
-  "scope": "/dyno/",
+  "name": "SMT Racing - CDI Mapping",
+  "short_name": "CDI Mapp",
+  "start_url": "/cdi/cdi-mapping.html",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0e0f13",
   "theme_color": "#0e0f13",
