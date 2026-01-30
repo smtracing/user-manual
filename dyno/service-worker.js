@@ -11,7 +11,7 @@ const CACHE_PAGES  = `pages-${SW_VERSION}`;
 
 // Halaman utama PWA (sesuaikan kalau path berbeda)
 const CORE_PAGES = [
-  "/dyno-road.html"
+  "/dyno/dyno-road.html"
 ];
 
 // Asset inti DYNO
@@ -22,12 +22,12 @@ const CORE_ASSETS = [
   "/dyno/js/app.js",
 
   // manifest + icon (supaya install/offline lebih mulus)
-  "/dyno.webmanifest",
+  "/dyno/dyno.webmanifest",
   "/assets/icon-192.png"
 ];
 
 // Optional: fallback offline (pakai dyno-road sebagai fallback)
-const OFFLINE_FALLBACK = "/dyno-road.html";
+const OFFLINE_FALLBACK = "/dyno/dyno-road.html";
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
@@ -138,3 +138,4 @@ self.addEventListener("fetch", (event) => {
     }
   })());
 });
+
