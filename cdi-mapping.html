@@ -15,7 +15,6 @@
   <meta name="apple-mobile-web-app-title" content="CDI Map">
   <link rel="apple-touch-icon" href="/assets/icon-192.png">
 
-  <!-- style utama -->
   <link rel="stylesheet" href="cdi/css/style.css" />
 
   <style>
@@ -23,7 +22,7 @@
       --topbar-h: 56px;
       --dock-h: 56px;
       --ui-zoom: 1;
-      --vh: 1vh; /* di-set oleh JS */
+      --vh: 1vh;
     }
 
     html, body{
@@ -35,7 +34,6 @@
       background:#0e0f13;
     }
 
-    /* ===== topbar rapih ===== */
     .topbar{
       display:flex;
       align-items:center;
@@ -91,7 +89,6 @@
       z-index:999999;
     }
 
-    /* ===== ROOT ikut vh ===== */
     #appRoot{
       height: calc(var(--vh) * 100);
       width:100vw;
@@ -99,37 +96,29 @@
       overflow:hidden;
     }
 
-    /* background */
     .bg-image{ position:fixed; inset:0; }
 
     /* ======================================================
-       ✅ FIX UTAMA: HILANGKAN "DOCK NAIK / KONTEN LONCAT"
-       - Jangan potong workspace pakai bottom: --dock-h
-       - Scroll cuma 1 tempat: #workspace
-       - Matikan .content yang pakai 100vh dari style.css
+       FIX: padding bawah ikut ZOOM
+       - zoom out -> padding mengecil -> mapping makin lega
     ====================================================== */
-
-    /* WORKSPACE scroll utama */
     #workspace{
       position:absolute;
       top:var(--topbar-h);
       left:0;
       right:0;
-
-      /* ✅ jangan dipotong dock */
       bottom:0;
 
       overflow:auto;
       -webkit-overflow-scrolling:touch;
       overscroll-behavior:contain;
 
-      /* ✅ ruang aman agar konten tidak ketutup dock */
-      padding-bottom: calc(var(--dock-h) + env(safe-area-inset-bottom) + 12px);
+      /* ✅ kunci: padding ikut zoom */
+      padding-bottom: calc((var(--dock-h) + env(safe-area-inset-bottom) + 12px) * var(--ui-zoom));
       box-sizing:border-box;
     }
     #workspace::-webkit-scrollbar{ display:none; }
 
-    /* area yang di-zoom (HANYA konten) */
     #workspaceInner{
       transform-origin: top left;
       transform: scale(var(--ui-zoom));
@@ -137,7 +126,7 @@
       min-height: 100%;
     }
 
-    /* ✅ Override style.css: .content jangan pakai 100vh & jangan overflow */
+    /* Override style.css kalau ada content yang maksa 100vh */
     #workspace #contentArea.content{
       height:auto !important;
       min-height:100% !important;
@@ -147,7 +136,7 @@
       overflow:visible !important;
     }
 
-    /* ===== DOCK ZOOM bawah (dibikin FIXED biar gak “ikut” layout scroll) ===== */
+    /* ===== DOCK ZOOM bawah ===== */
     .zoom-dock{
       position:fixed;
       left:50%;
@@ -164,11 +153,8 @@
       border:1px solid rgba(255,255,255,.16);
       background:rgba(0,0,0,.40);
       backdrop-filter: blur(10px);
-
       -webkit-tap-highlight-color: transparent;
       user-select:none;
-
-      /* biar gesture stabil */
       touch-action: manipulation;
     }
     .zoom-dock .zbtn{
@@ -212,7 +198,7 @@
     .hint-right{ right:10px; top:50%; transform:translateY(-50%); }
     .hint-bottom{
       left:50%;
-      bottom: calc(var(--dock-h) + env(safe-area-inset-bottom) + 12px);
+      bottom: calc((var(--dock-h) + env(safe-area-inset-bottom) + 12px) * var(--ui-zoom));
       transform:translateX(-50%);
     }
 
@@ -224,7 +210,18 @@
       .zoom-dock .zlabel{ min-width:40px; }
     }
 
-    /* ===== KUNCI INTERAKSI CANVAS DI HP (BIAR DRAG TITIK JALAN) ===== */
+    /* Landscape: dock lebih tipis biar mapping tambah lega */
+    @media (orientation: landscape){
+      :root{ --dock-h: 46px; }
+      .zoom-dock{
+        height:40px;
+        padding:6px 10px;
+        bottom: calc(6px + env(safe-area-inset-bottom));
+      }
+      .zoom-dock .zbtn{ height:30px; min-width:38px; }
+      .zoom-dock .zlabel{ font-size:11px; }
+    }
+
     #curveCanvas{ touch-action:none; }
   </style>
 </head>
@@ -264,7 +261,8 @@
 
   <div class="zoom-dock" id="zoomDock">
     <button class="zbtn" id="zoomOutBtn" type="button">−</button>
-    <input class="zrange" id="zoomRange" type="range" min="80" max="160" value="100">
+    <!-- ✅ min jadi 40% (0% bikin konten hilang total) -->
+    <input class="zrange" id="zoomRange" type="range" min="40" max="160" value="100">
     <button class="zbtn" id="zoomInBtn" type="button">+</button>
     <div class="zlabel" id="zoomLabel">100%</div>
   </div>
@@ -289,19 +287,15 @@
     }
     return window.innerHeight;
   }
-
   function setVH(){
     const h = getH();
     document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
   }
-
   setVH();
   window.addEventListener('resize', setVH, {passive:true});
-
   if (window.visualViewport){
     window.visualViewport.addEventListener('resize', setVH, {passive:true});
   }
-
   window.addEventListener('orientationchange', () => {
     setTimeout(setVH, 250);
     setTimeout(setVH, 600);
@@ -312,14 +306,13 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 
-  // ===== ZOOM UI =====
   const zoomRange = document.getElementById('zoomRange');
   const zoomInBtn = document.getElementById('zoomInBtn');
   const zoomOutBtn = document.getElementById('zoomOutBtn');
   const zoomLabel = document.getElementById('zoomLabel');
 
   function setZoomPct(pct){
-    const clamped = Math.max(80, Math.min(160, pct));
+    const clamped = Math.max(40, Math.min(160, pct));
     const z = clamped / 100;
     document.documentElement.style.setProperty('--ui-zoom', z.toFixed(3));
     zoomRange.value = String(clamped);
@@ -331,7 +324,6 @@ document.addEventListener('DOMContentLoaded', () => {
   zoomInBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) + 5));
   zoomOutBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) - 5));
 
-  // ===== TOOLTIP =====
   const hintRight = document.getElementById('hintRight');
   const hintBottom = document.getElementById('hintBottom');
   let hintTimer = null;
@@ -346,7 +338,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   showHints();
 
-  // ===== INSTALL (PWA) =====
   const installBtn = document.getElementById('installBtn');
   let deferredPrompt = null;
 
@@ -368,7 +359,6 @@ document.addEventListener('DOMContentLoaded', () => {
     installBtn.style.display = 'none';
   });
 
-  // ===== SW =====
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
   }
