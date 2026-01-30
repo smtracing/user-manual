@@ -367,36 +367,79 @@ function redraw_BASIC() {
    DRAG TITIK
 ========================================================= */
 function enableDrag_BASIC(){
-  const c = document.getElementById("curveCanvas_BASIC");
+  const c = document.getElementById("curveCanvas_BASIC") || document.getElementById("curveCanvas");
+  const root = document.getElementById("appRoot") || document.body;
   if(!c) return;
 
-  // HP: supaya titik bisa di-drag (tanpa halaman ikut geser)
   c.style.touchAction = "none";
 
   let dragging = false;
   let idx = null;
-  let activePointerId = null;
+  let pid = null;
 
-  // pointer -> koordinat canvas (memperhitungkan zoom CSS / rotate wrapper)
+  function getUiZoom(){
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom').trim();
+    const z = parseFloat(v);
+    return (isFinite(z) && z > 0) ? z : 1;
+  }
+
+  function offsetTo(el, stopEl){
+    let x = 0, y = 0;
+    let cur = el;
+    while(cur && cur !== stopEl){
+      x += cur.offsetLeft || 0;
+      y += cur.offsetTop  || 0;
+      cur = cur.offsetParent;
+    }
+    return {x,y};
+  }
+
+  // layar -> koordinat "layout asli" appRoot (sebelum rotate)
+  function screenToRoot(clientX, clientY){
+    // normal: root tidak rotate, cukup pakai rect
+    if(!document.body.classList.contains("rotate-mode")){
+      const rr = root.getBoundingClientRect();
+      return { x: clientX - rr.left, y: clientY - rr.top };
+    }
+
+    const rr = root.getBoundingClientRect();
+    const dx = clientX - rr.left;
+    const dy = clientY - rr.top;
+
+    const tf = getComputedStyle(root).transform;
+    if(!tf || tf === "none"){
+      return { x: dx, y: dy };
+    }
+
+    const m = new DOMMatrix(tf);
+    const inv = m.inverse();
+    const p = new DOMPoint(dx, dy).matrixTransform(inv);
+    return { x: p.x, y: p.y };
+  }
+
+  // pointer -> koordinat CANVAS (selalu benar walau rotate + zoom CSS)
   function pointerToCanvas(e){
-    const rect = c.getBoundingClientRect();
-    const sx = c.width  / rect.width;
-    const sy = c.height / rect.height;
-    return {
-      x: (e.clientX - rect.left) * sx,
-      y: (e.clientY - rect.top)  * sy
-    };
+    const rp = screenToRoot(e.clientX, e.clientY);
+
+    // posisi canvas di layout asli (bukan rect rotated)
+    const off = offsetTo(c, root);
+    const lx = rp.x - off.x;
+    const ly = rp.y - off.y;
+
+    // skala display->buffer
+    const sx = c.width  / (c.offsetWidth  || 1);
+    const sy = c.height / (c.offsetHeight || 1);
+
+    // koreksi zoom UI (workspaceInner scale)
+    const z = getUiZoom();
+    const x = (lx / z) * sx;
+    const y = (ly / z) * sy;
+
+    return {x, y};
   }
 
   function dxStep(){
     return (c.width - PLOT_LEFT - AXIS_RIGHT_PADDING) / (rpmPoints_BASIC.length - 1);
-  }
-
-  function pickIndexAt(x){
-    const dx = dxStep();
-    const i = Math.round((x - PLOT_LEFT) / dx);
-    if (i < 0 || i >= rpmPoints_BASIC.length) return null;
-    return i;
   }
 
   function setFromY(i, y){
@@ -410,26 +453,25 @@ function enableDrag_BASIC(){
     if (inp) inp.value = val.toFixed(1);
 
     redraw_BASIC();
-    redrawAFRDetail_BASIC();
+    if (typeof redrawAFRDetail_BASIC === "function") redrawAFRDetail_BASIC();
   }
 
   function onDown(e){
-    // hanya primary button / touch
     if (e.button !== undefined && e.button !== 0) return;
 
     const p = pointerToCanvas(e);
-    const i = pickIndexAt(p.x);
-    if (i === null) return;
 
-    // wajib dekat titik, supaya tidak salah drag
     const dx = dxStep();
+    const i = Math.round((p.x - PLOT_LEFT) / dx);
+    if (i < 0 || i >= rpmPoints_BASIC.length) return;
+
+    // hit test dekat titik
     const cap = (BASIC.pickup ?? TIMING_MAX);
     const px = PLOT_LEFT + i * dx;
-
     const curVal = BASIC.curve[i];
-    const py = AXIS_TOP_PADDING + (1 - (curVal / cap)) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
+    const py = AXIS_TOP_PADDING + (1 - (Math.min(curVal, cap) / cap)) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
 
-    const hitR = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) ? 18 : 12;
+    const hitR = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) ? 20 : 10;
     if (Math.hypot(p.x - px, p.y - py) > hitR) return;
 
     e.preventDefault();
@@ -437,18 +479,16 @@ function enableDrag_BASIC(){
 
     dragging = true;
     idx = i;
-    activePointerId = (e.pointerId !== undefined) ? e.pointerId : null;
+    pid = (e.pointerId !== undefined) ? e.pointerId : null;
 
-    try {
-      if (c.setPointerCapture && activePointerId !== null) c.setPointerCapture(activePointerId);
-    } catch(_){}
+    try { if (c.setPointerCapture && pid !== null) c.setPointerCapture(pid); } catch(_){}
 
     setFromY(idx, p.y);
   }
 
   function onMove(e){
-    if (!dragging) return;
-    if (activePointerId !== null && e.pointerId !== activePointerId) return;
+    if(!dragging) return;
+    if(pid !== null && e.pointerId !== pid) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -457,29 +497,27 @@ function enableDrag_BASIC(){
     setFromY(idx, p.y);
   }
 
-  function end(e){
-    if (!dragging) return;
-    if (activePointerId !== null && e.pointerId !== undefined && e.pointerId !== activePointerId) return;
+  function onUp(e){
+    if(!dragging) return;
+    if(pid !== null && e.pointerId !== undefined && e.pointerId !== pid) return;
 
     dragging = false;
     idx = null;
 
-    try {
-      if (c.releasePointerCapture && activePointerId !== null) c.releasePointerCapture(activePointerId);
-    } catch(_){}
-
-    activePointerId = null;
+    try { if (c.releasePointerCapture && pid !== null) c.releasePointerCapture(pid); } catch(_){}
+    pid = null;
   }
 
-  // jangan pakai window.onmouseup / onmousemove (biar tidak bentrok)
+  // bersihin handler lama
   c.onmousedown = null;
   c.onmousemove = null;
 
-  c.addEventListener("pointerdown", onDown, { passive:false });
-  c.addEventListener("pointermove", onMove, { passive:false });
-  window.addEventListener("pointerup", end, { passive:false });
-  window.addEventListener("pointercancel", end, { passive:false });
+  c.addEventListener("pointerdown", onDown, {passive:false});
+  c.addEventListener("pointermove", onMove, {passive:false});
+  window.addEventListener("pointerup", onUp, {passive:false});
+  window.addEventListener("pointercancel", onUp, {passive:false});
 }
+
 
 
 /* =========================================================
