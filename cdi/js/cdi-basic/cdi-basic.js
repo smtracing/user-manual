@@ -366,120 +366,129 @@ function redraw_BASIC() {
 /* =========================================================
    DRAG TITIK
 ========================================================= */
-function enableDrag_BASIC(){
-  const c = document.getElementById("curveCanvas_BASIC");
-  if(!c) return;
 
-  // HP: supaya titik bisa di-drag (tanpa halaman ikut geser)
+function enableDrag_BASIC() {
+  const c = document.getElementById("curveCanvas");
+  if (!c) return;
+
+  // penting: biar sentuh di canvas tidak dianggap scroll
   c.style.touchAction = "none";
 
-  let dragging = false;
   let idx = null;
-  let activePointerId = null;
+  let dragging = false;
 
-  // pointer -> koordinat canvas (memperhitungkan zoom CSS / rotate wrapper)
-  function pointerToCanvas(e){
-    const rect = c.getBoundingClientRect();
-    const sx = c.width  / rect.width;
-    const sy = c.height / rect.height;
-    return {
-      x: (e.clientX - rect.left) * sx,
-      y: (e.clientY - rect.top)  * sy
-    };
+  function posToCanvas(ev) {
+    const r = c.getBoundingClientRect();
+
+    // scale: ukuran CSS -> ukuran internal canvas
+    const sx = c.width / r.width;
+    const sy = c.height / r.height;
+
+    const x = (ev.clientX - r.left) * sx;
+    const y = (ev.clientY - r.top) * sy;
+    return { x, y };
   }
 
-  function dxStep(){
-    return (c.width - PLOT_LEFT - AXIS_RIGHT_PADDING) / (rpmPoints_BASIC.length - 1);
+  function findPointIndex(mx, my) {
+    const cap = BASIC.pickup ?? TIMING_MAX;
+
+    let found = null;
+    for (let i = 0; i < BASIC.curve.length; i++) {
+      if (BASIC.limiter && rpmPoints_BASIC[i] > BASIC.limiter) continue;
+
+      const x =
+        PLOT_LEFT +
+        (i / (rpmPoints_BASIC.length - 1)) *
+          (c.width - PLOT_LEFT - AXIS_RIGHT_PADDING);
+
+      const y =
+        AXIS_TOP_PADDING +
+        (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING) -
+        (Math.min(BASIC.curve[i], cap) / cap) *
+          (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
+
+      // radius klik diperbesar sedikit biar enak di HP
+      if (Math.hypot(mx - x, my - y) < 14) {
+        found = i;
+        break;
+      }
+    }
+    return found;
   }
 
-  function pickIndexAt(x){
-    const dx = dxStep();
-    const i = Math.round((x - PLOT_LEFT) / dx);
-    if (i < 0 || i >= rpmPoints_BASIC.length) return null;
-    return i;
-  }
+  function applyValueFromY(i, my) {
+    const cap = BASIC.pickup ?? TIMING_MAX;
 
-  function setFromY(i, y){
-    const cap = (BASIC.pickup ?? TIMING_MAX);
-    let val = cap * (1 - (y - AXIS_TOP_PADDING) / (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING));
+    let val =
+      cap *
+      (1 -
+        (my - AXIS_TOP_PADDING) /
+          (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING));
+
     val = Math.max(TIMING_MIN, Math.min(cap, val));
-
     BASIC.curve[i] = val;
 
-    const inp = document.querySelector(`#rpmTable tr:nth-child(${i + 2}) input`);
+    const inp = document.querySelector(
+      `#rpmTable tr:nth-child(${i + 2}) input`
+    );
     if (inp) inp.value = val.toFixed(1);
 
     redraw_BASIC();
-    redrawAFRDetail_BASIC();
   }
 
-  function onDown(e){
-    // hanya primary button / touch
-    if (e.button !== undefined && e.button !== 0) return;
+  function onDown(ev) {
+    const p = posToCanvas(ev);
+    const hit = findPointIndex(p.x, p.y);
 
-    const p = pointerToCanvas(e);
-    const i = pickIndexAt(p.x);
-    if (i === null) return;
+    if (hit !== null) {
+      idx = hit;
+      dragging = true;
 
-    // wajib dekat titik, supaya tidak salah drag
-    const dx = dxStep();
-    const cap = (BASIC.pickup ?? TIMING_MAX);
-    const px = PLOT_LEFT + i * dx;
+      // kunci pointer ke canvas (biar tetap ke-drag walau finger geser)
+      try { c.setPointerCapture(ev.pointerId); } catch (e) {}
 
-    const curVal = BASIC.curve[i];
-    const py = AXIS_TOP_PADDING + (1 - (curVal / cap)) * (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
-
-    const hitR = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) ? 18 : 12;
-    if (Math.hypot(p.x - px, p.y - py) > hitR) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    dragging = true;
-    idx = i;
-    activePointerId = (e.pointerId !== undefined) ? e.pointerId : null;
-
-    try {
-      if (c.setPointerCapture && activePointerId !== null) c.setPointerCapture(activePointerId);
-    } catch(_){}
-
-    setFromY(idx, p.y);
+      ev.preventDefault();
+      ev.stopPropagation();
+    } else {
+      idx = null;
+      dragging = false;
+    }
   }
 
-  function onMove(e){
+  function onMove(ev) {
+    if (!dragging || idx === null) return;
+
+    const p = posToCanvas(ev);
+    applyValueFromY(idx, p.y);
+
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+
+  function onUp(ev) {
     if (!dragging) return;
-    if (activePointerId !== null && e.pointerId !== activePointerId) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    const p = pointerToCanvas(e);
-    setFromY(idx, p.y);
-  }
-
-  function end(e){
-    if (!dragging) return;
-    if (activePointerId !== null && e.pointerId !== undefined && e.pointerId !== activePointerId) return;
 
     dragging = false;
     idx = null;
 
-    try {
-      if (c.releasePointerCapture && activePointerId !== null) c.releasePointerCapture(activePointerId);
-    } catch(_){}
+    try { c.releasePointerCapture(ev.pointerId); } catch (e) {}
 
-    activePointerId = null;
+    ev.preventDefault();
+    ev.stopPropagation();
   }
 
-  // jangan pakai window.onmouseup / onmousemove (biar tidak bentrok)
+  // bersihkan handler lama (kalau sebelumnya pakai onmousedown dll)
   c.onmousedown = null;
   c.onmousemove = null;
+  window.onmouseup = null;
 
-  c.addEventListener("pointerdown", onDown, { passive:false });
-  c.addEventListener("pointermove", onMove, { passive:false });
-  window.addEventListener("pointerup", end, { passive:false });
-  window.addEventListener("pointercancel", end, { passive:false });
+  // Pointer Events (jalan di HP + PC)
+  c.addEventListener("pointerdown", onDown, { passive: false });
+  c.addEventListener("pointermove", onMove, { passive: false });
+  c.addEventListener("pointerup", onUp, { passive: false });
+  c.addEventListener("pointercancel", onUp, { passive: false });
 }
+
 
 
 /* =========================================================
