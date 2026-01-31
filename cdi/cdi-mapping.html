@@ -444,11 +444,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // hilang ketika semua resource selesai (CSS/JS/images)
   window.addEventListener('load', () => {
     // kecilin delay biar terasa “responsif”
-    setTimeout(hideSplash, 3000);
+    setTimeout(hideSplash, 6000);
   }, { once:true });
 
   // fallback kalau ada yang macet
-  setTimeout(hideSplash, 6000);
+  setTimeout(hideSplash, 12000);
 
   /* ===== ZOOM UI ===== */
   const zoomRange = document.getElementById('zoomRange');
@@ -515,4 +515,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </body>
 </html>
+
 
