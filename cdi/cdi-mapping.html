@@ -223,11 +223,40 @@
     }
 
     #curveCanvas{ touch-action:none; }
+
+    /* ======================================================
+       ✅ SPLASH FOTO (terpisah dari icon aplikasi)
+       File taruh di: /cdi/img/splash.png
+    ====================================================== */
+    #splash{
+      position:fixed;
+      inset:0;
+      z-index:999999;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:#0e0f13;
+    }
+    #splash img{
+      width:min(260px, 70vw);
+      height:auto;
+      display:block;
+    }
+    #splash.hide{
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .25s ease;
+    }
   </style>
 </head>
 
 <body>
 <div id="appRoot">
+
+  <!-- ===== SPLASH FOTO (ambil dari /cdi/img/splash.png) ===== -->
+  <div id="splash" aria-hidden="true">
+    <img src="/cdi/img/splash.png" alt="SMT Racing">
+  </div>
 
   <header class="topbar">
     <div class="title">CDI MAPPING</div>
@@ -306,6 +335,15 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 
+  /* ===== SPLASH AUTO HILANG ===== */
+  const splash = document.getElementById("splash");
+  if (splash){
+    setTimeout(() => {
+      splash.classList.add("hide");
+      setTimeout(() => splash.remove(), 350);
+    }, 700); // durasi tampil splash (ms)
+  }
+
   const zoomRange = document.getElementById('zoomRange');
   const zoomInBtn = document.getElementById('zoomInBtn');
   const zoomOutBtn = document.getElementById('zoomOutBtn');
@@ -366,8 +404,4 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 
 </body>
-
 </html>
-
-
-
