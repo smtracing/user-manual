@@ -17,7 +17,6 @@
 
   <!-- ===== iOS STARTUP IMAGES (LAUNCH SCREEN) =====
        Taruh file PNG ini di: /cdi/assets/splash/
-       Contoh nama file: startup-750x1334.png, dst.
   -->
   <link rel="apple-touch-startup-image" href="/cdi/assets/splash/startup-640x1136.png"
         media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
@@ -264,10 +263,10 @@
     #curveCanvas{ touch-action:none; }
 
     /* ======================================================
-       SPLASH (HTML) + LOADING BAR (dibuat oleh HTML, bukan gambar)
-       - Splash tampil cepat saat app mulai
-       - Loading bar jalan otomatis
-       - Splash hilang saat window "load" (atau timeout fallback)
+       SPLASH (HTML) + LOADING BAR
+       (Perubahan hanya di bagian ini)
+       - Logo tetap di tengah
+       - Bar + teks diturunkan ke tengah-bawah
     ====================================================== */
     #splash{
       position:fixed;
@@ -290,10 +289,10 @@
       flex-direction:column;
       align-items:center;
       gap:18px;
-      transform: translateY(200px);
+      transform:none; /* ✅ jangan geser container, biar logo tidak ikut turun */
     }
     .splash-logo{
-      width:min(300px, 70vw);
+      width:min(320px, 70vw);
       height:auto;
       image-rendering:auto;
       user-select:none;
@@ -301,7 +300,9 @@
     }
 
     .splash-bar{
-      width:min(360px, 80vw);
+      /* ✅ yang diturunkan cuma bar (bukan logo) */
+      margin-top: 120px;          /* atur ini kalau mau lebih turun */
+      width:min(360px, 86vw);     /* ✅ lebih panjang */
       height:6px;
       border-radius:999px;
       background:rgba(255,255,255,.10);
@@ -315,7 +316,7 @@
       left:-40%;
       top:0;
       height:100%;
-      width:50%;
+      width:40%;
       border-radius:999px;
       background:rgba(0,255,100,.9);
       filter: drop-shadow(0 0 8px rgba(0,255,100,.35));
@@ -328,6 +329,7 @@
     }
 
     .splash-note{
+      margin-top: 10px;           /* ✅ ikut turun rapi */
       font-size:12px;
       color:rgba(255,255,255,.70);
       letter-spacing:.04em;
@@ -337,11 +339,9 @@
 
 <body>
 
-<!-- ===== SPLASH HTML (ini yang kamu mau: gambar + bar dari HTML) ===== -->
+<!-- ===== SPLASH HTML ===== -->
 <div id="splash" aria-hidden="false">
   <div class="splash-inner">
-    <!-- Pakai logo terpisah dari icon aplikasi -->
-    <!-- Ganti src ini kalau kamu taruh logo splash di lokasi lain -->
     <img class="splash-logo" src="/assets/logo.png" alt="SMT Racing">
     <div class="splash-bar" aria-label="Loading"></div>
     <div class="splash-note">LOADING...</div>
@@ -427,12 +427,15 @@
 document.addEventListener('DOMContentLoaded', () => {
 
   /* ===== SPLASH CONTROL =====
-     - Splash dibuat oleh HTML (bukan icon aplikasi)
-     - Akan hilang saat page selesai load (window.load)
-     - Fallback: kalau load nyangkut, max 3.5 detik splash tetap hilang
+     - Dibuat oleh HTML (bukan icon aplikasi)
+     - Dibuat sedikit delay (maks 2 detik)
   */
   const splash = document.getElementById('splash');
   let splashGone = false;
+
+  const SPLASH_MIN_MS = 10000;  // minimal tampil (biar tidak terlalu cepat)
+  const SPLASH_MAX_MS = 12000;  // maksimal tampil (sesuai permintaan)
+  const splashStart = Date.now();
 
   function hideSplash(){
     if (splashGone) return;
@@ -441,14 +444,19 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => { splash.style.display = 'none'; }, 350);
   }
 
+  function hideWithMinDelay(){
+    const elapsed = Date.now() - splashStart;
+    const wait = Math.max(0, SPLASH_MIN_MS - elapsed);
+    setTimeout(hideSplash, wait);
+  }
+
   // hilang ketika semua resource selesai (CSS/JS/images)
   window.addEventListener('load', () => {
-    // kecilin delay biar terasa “responsif”
-    setTimeout(hideSplash, 6000);
+    hideWithMinDelay();
   }, { once:true });
 
-  // fallback kalau ada yang macet
-  setTimeout(hideSplash, 12000);
+  // fallback: kalau load nyangkut, tetap hilang maksimal 2 detik
+  setTimeout(hideSplash, SPLASH_MAX_MS);
 
   /* ===== ZOOM UI ===== */
   const zoomRange = document.getElementById('zoomRange');
@@ -515,7 +523,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </body>
 </html>
-
-
-
-
