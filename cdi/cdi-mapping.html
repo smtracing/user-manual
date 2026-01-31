@@ -140,7 +140,6 @@
 
     /* ======================================================
        FIX: padding bawah ikut ZOOM
-       - zoom out -> padding mengecil -> mapping makin lega
     ====================================================== */
     #workspace{
       position:absolute;
@@ -264,46 +263,54 @@
 
     /* ======================================================
        SPLASH (HTML) + LOADING BAR
-       (Perubahan hanya di bagian ini)
        - Logo tetap di tengah
-       - Bar + teks diturunkan ke tengah-bawah
+       - Bar + teks diturunkan (pakai grid biar aman saat rotate)
+       - FIX: saat HP miring, bar tidak jatuh keluar layar
     ====================================================== */
     #splash{
       position:fixed;
       inset:0;
       z-index:9999999;
-      display:flex;
+      display:grid;
+      grid-template-rows: 1fr auto 1fr; /* logo di tengah, bar di bawah-tengah */
       align-items:center;
-      justify-content:center;
+      justify-items:center;
       background:#0e0f13;
       opacity:1;
       transition: opacity .25s ease;
+      min-height: 100svh; /* bantu kasus viewport berubah saat rotate */
     }
     #splash.hide{
       opacity:0;
       pointer-events:none;
     }
+
     .splash-inner{
-      width:min(420px, 88vw);
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      gap:18px;
-      transform: translateY(300px);
-       /* ✅ jangan geser container, biar logo tidak ikut turun */
+      width:min(520px, 92vw);
+      display:contents; /* biar anak-anak ikut grid */
     }
+
     .splash-logo{
-      width:min(320px, 70vw);
+      grid-row:2;
+      width:min(360px, 75vw);
       height:auto;
       image-rendering:auto;
       user-select:none;
       -webkit-user-drag:none;
     }
 
+    .splash-bottom{
+      grid-row:3;
+      width:min(520px, 92vw);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:10px;
+      padding-bottom: min(14vh, 140px); /* posisi turun tapi tetap aman */
+    }
+
     .splash-bar{
-      /* ✅ yang diturunkan cuma bar (bukan logo) */
-      margin-top: 500px;          /* atur ini kalau mau lebih turun */
-      width:min(360px, 86vw);     /* ✅ lebih panjang */
+      width:min(520px, 92vw); /* ✅ lebih panjang */
       height:6px;
       border-radius:999px;
       background:rgba(255,255,255,.10);
@@ -330,10 +337,25 @@
     }
 
     .splash-note{
-      margin-top: 10px;           /* ✅ ikut turun rapi */
       font-size:12px;
       color:rgba(255,255,255,.70);
       letter-spacing:.04em;
+    }
+
+    /* ===== FIX saat HP LANDSCAPE (miring) ===== */
+    @media (orientation: landscape){
+      .splash-logo{
+        width:min(260px, 55vw);
+      }
+      .splash-bottom{
+        padding-bottom: min(10vh, 70px);
+      }
+      .splash-bar{
+        width:min(560px, 92vw);
+      }
+      .splash-note{
+        font-size:11px;
+      }
     }
   </style>
 </head>
@@ -344,8 +366,10 @@
 <div id="splash" aria-hidden="false">
   <div class="splash-inner">
     <img class="splash-logo" src="/assets/logo.png" alt="SMT Racing">
-    <div class="splash-bar" aria-label="Loading"></div>
-    <div class="splash-note">LOADING...</div>
+    <div class="splash-bottom">
+      <div class="splash-bar" aria-label="Loading"></div>
+      <div class="splash-note">LOADING...</div>
+    </div>
   </div>
 </div>
 
@@ -428,14 +452,15 @@
 document.addEventListener('DOMContentLoaded', () => {
 
   /* ===== SPLASH CONTROL =====
-     - Dibuat oleh HTML (bukan icon aplikasi)
-     - Dibuat sedikit delay (maks 2 detik)
+     - Minimal tampil 2 detik
+     - Habis load, tunggu sampai minimal 2 detik baru hilang
+     - Fallback max 2 detik juga (sesuai permintaan)
   */
   const splash = document.getElementById('splash');
   let splashGone = false;
 
-  const SPLASH_MIN_MS = 10000;  // minimal tampil (biar tidak terlalu cepat)
-  const SPLASH_MAX_MS = 12000;  // maksimal tampil (sesuai permintaan)
+  const SPLASH_MIN_MS = 2000;  // ✅ minimal 2 detik
+  const SPLASH_MAX_MS = 2000;  // ✅ maksimal 2 detik
   const splashStart = Date.now();
 
   function hideSplash(){
@@ -451,7 +476,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(hideSplash, wait);
   }
 
-  // hilang ketika semua resource selesai (CSS/JS/images)
   window.addEventListener('load', () => {
     hideWithMinDelay();
   }, { once:true });
@@ -524,12 +548,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </body>
 </html>
-
-
-
-
-
-
-
-
-
