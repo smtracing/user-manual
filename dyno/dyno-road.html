@@ -1,4 +1,4 @@
-<!-- dyno-road.html (ZOOM + PWA INSTALL + VH FIX + DOCK STABIL) -->
+<!-- dyno-road.html (ZOOM + PWA INSTALL + VH FIX + DOCK STABIL + SPLASH HTML + iOS STARTUP IMAGES) -->
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -10,11 +10,63 @@
   <link rel="manifest" href="dyno.webmanifest?v=1">
   <meta name="theme-color" content="#0e0f13">
 
-  <!-- iOS A2HS -->
+  <!-- ===== iOS A2HS ===== -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DYNO ROAD">
-  <link rel="apple-touch-icon" href="/assets/icon-192.png">
+  <link rel="apple-touch-icon" href="/dyno/assets/icon-192.png">
+
+  <!-- ===== iOS STARTUP IMAGES (LAUNCH SCREEN) =====
+       Taruh file PNG di: /dyno/assets/splash/
+       Nama file harus sama seperti di bawah.
+  -->
+  <!-- iPhone SE (1st gen) / 5 / 5s / 5c -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-640x1136.png"
+        media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPhone 6/7/8 -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-750x1334.png"
+        media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPhone XR / 11 -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-828x1792.png"
+        media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPhone X / XS / 11 Pro -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1125x2436.png"
+        media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+
+  <!-- iPhone 12/13/14 -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1170x2532.png"
+        media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+
+  <!-- iPhone 6/7/8 Plus -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1242x2208.png"
+        media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+
+  <!-- iPhone XS Max / 11 Pro Max -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1242x2688.png"
+        media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+
+  <!-- iPhone 12/13/14 Pro Max -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1284x2778.png"
+        media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+
+  <!-- iPad 9.7" / 10.2" -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1536x2048.png"
+        media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPad 10.5" -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1668x2224.png"
+        media="(device-width: 834px) and (device-height: 1112px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPad 11" -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1668x2388.png"
+        media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPad 12.9" -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-2048x2732.png"
+        media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
 
   <!-- style utama -->
   <link rel="stylesheet" href="css/style.css"/>
@@ -74,6 +126,7 @@
       gap:10px;
       z-index:1001;
     }
+
     .chip-btn{
       display:inline-flex;
       align-items:center;
@@ -93,9 +146,8 @@
       -webkit-tap-highlight-color: transparent;
       user-select:none;
       white-space:nowrap;
+      transition: filter .12s ease, opacity .12s ease;
     }
-    
-    .chip-btn{ transition: filter .12s ease, opacity .12s ease; }
     .chip-btn:active{ filter: brightness(1.15); }
 
     /* Workspace scrollable (konten) */
@@ -109,7 +161,6 @@
       -webkit-overflow-scrolling:touch;
       overscroll-behavior:contain;
 
-      /* penting: jangan biarkan padding/height berubah saat zoom */
       padding: 14px 12px 18px 12px;
       box-sizing:border-box;
     }
@@ -123,7 +174,7 @@
       min-height: calc(100% / var(--ui-zoom));
     }
 
-    /* Dock zoom FIXED (bukan absolute) -> tidak akan “naik ke tengah” saat zoom out */
+    /* Dock zoom FIXED */
     .zoom-dock{
       position:fixed;
       left:50%;
@@ -157,10 +208,7 @@
       cursor:pointer;
     }
     .zoom-dock .zbtn:active{ transform:scale(.98); }
-    .zoom-dock .zrange{
-      width:140px;
-      accent-color:#ffffff;
-    }
+    .zoom-dock .zrange{ width:140px; accent-color:#ffffff; }
     .zoom-dock .zlabel{
       font-size:12px;
       color:#fff;
@@ -169,7 +217,6 @@
       text-align:right;
     }
 
-    /* kecilkan dock saat landscape biar area mapping lega */
     @media (orientation: landscape){
       :root{ --dock-h: 48px; }
       .zoom-dock{ height:40px; padding:6px 8px; }
@@ -183,12 +230,120 @@
       .zoom-dock .zlabel{ min-width:40px; }
     }
 
+    /* ======================================================
+       SPLASH (HTML) + LOADING BAR (Android/PC)
+       - Aman portrait/landscape (bar tidak hilang saat rotate)
+       - Durasi: max 2 detik (di JS)
+    ====================================================== */
+    #splash{
+      position:fixed;
+      inset:0;
+      z-index:9999999;
+      display:block;
+      background:#0e0f13;
+      opacity:1;
+      transition: opacity .25s ease;
+      padding:
+        env(safe-area-inset-top, 0px)
+        env(safe-area-inset-right, 0px)
+        env(safe-area-inset-bottom, 0px)
+        env(safe-area-inset-left, 0px);
+    }
+    #splash.hide{
+      opacity:0;
+      pointer-events:none;
+    }
+    .splash-inner{
+      height: calc(var(--vh) * 100);
+      width: 100%;
+      display:grid;
+      place-items:center;
+    }
+    .splash-grid{
+      width: min(520px, 92vw);
+      height: 100%;
+      display:grid;
+      grid-template-rows: 1.2fr auto auto auto 0.9fr;
+      justify-items:center;
+      align-items:center;
+      gap: 12px;
+      box-sizing:border-box;
+    }
+    .splash-logo{
+      width: min(420px, 82vw);
+      height:auto;
+      user-select:none;
+      -webkit-user-drag:none;
+      transform: translateY(10px);
+    }
+    .splash-bar{
+      width: min(320px, 78vw);
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.10);
+      border: 1px solid rgba(255,255,255,.12);
+      overflow:hidden;
+      position: relative;
+      margin-top: 10px;
+    }
+    .splash-bar::before{
+      content:"";
+      position:absolute;
+      top:0;
+      left:-40%;
+      height:100%;
+      width:40%;
+      border-radius:999px;
+      background: rgba(0,255,100,.9);
+      filter: drop-shadow(0 0 8px rgba(0,255,100,.35));
+      animation: splashMove 1.1s ease-in-out infinite;
+    }
+    @keyframes splashMove{
+      0%{ left:-40%; width:35%; }
+      50%{ left:30%;  width:45%; }
+      100%{ left:110%; width:35%; }
+    }
+    .splash-note{
+      font-size:12px;
+      color: rgba(255,255,255,.70);
+      letter-spacing: .04em;
+    }
+
+    @media (orientation: landscape){
+      .splash-grid{
+        grid-template-rows: 0.7fr auto auto auto 0.7fr;
+        gap: 10px;
+      }
+      .splash-logo{
+        width: min(360px, 60vw);
+        transform: translateY(6px);
+      }
+      .splash-bar{
+        width: min(300px, 70vw);
+        margin-top: 6px;
+      }
+    }
+
     /* OPTIONAL: kunci gesture canvas dyno kalau butuh (tidak ganggu scroll page) */
     /* #dynoCanvas{ touch-action:none; } */
   </style>
 </head>
 
 <body>
+
+<!-- ===== SPLASH HTML (logo terpisah dari icon aplikasi) ===== -->
+<div id="splash" aria-hidden="false">
+  <div class="splash-inner">
+    <div class="splash-grid">
+      <div></div>
+      <img class="splash-logo" src="/dyno/assets/logo.png" alt="SMT Racing">
+      <div class="splash-bar" aria-label="Loading"></div>
+      <div class="splash-note">LOADING...</div>
+      <div></div>
+    </div>
+  </div>
+</div>
+
 <div id="appRoot">
 
   <header class="topbar">
@@ -322,7 +477,6 @@
   <!-- ===== DOCK ZOOM ===== -->
   <div class="zoom-dock" id="zoomDock">
     <button class="zbtn" id="zoomOutBtn" type="button">−</button>
-    <!-- min bisa sampai 30% biar “lega” (0% tidak mungkin karena skala 0 bikin elemen hilang total) -->
     <input class="zrange" id="zoomRange" type="range" min="30" max="160" value="100">
     <button class="zbtn" id="zoomInBtn" type="button">+</button>
     <div class="zlabel" id="zoomLabel">100%</div>
@@ -336,7 +490,7 @@
 <script src="js/app.js"></script>
 
 <script>
-/* ===== FIX VH untuk Android (rotate + address bar) ===== */
+/* ===== FIX VH untuk Android/iOS (rotate + address bar) ===== */
 (function(){
   function getH(){
     if (window.visualViewport && typeof window.visualViewport.height === "number"){
@@ -363,6 +517,30 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 
+  /* ===== SPLASH CONTROL (maks 2 detik) ===== */
+  const splash = document.getElementById('splash');
+  let splashGone = false;
+
+  const SPLASH_MIN_MS = 9000;   // minimal tampil (biar tidak kedip)
+  const SPLASH_MAX_MS = 11000;  // maksimal tampil
+  const splashStart  = Date.now();
+
+  function hideSplash(){
+    if (splashGone) return;
+    splashGone = true;
+    splash.classList.add('hide');
+    setTimeout(() => { splash.style.display = 'none'; }, 350);
+  }
+
+  function hideWithMinDelay(){
+    const elapsed = Date.now() - splashStart;
+    const wait = Math.max(0, SPLASH_MIN_MS - elapsed);
+    setTimeout(hideSplash, wait);
+  }
+
+  window.addEventListener('load', hideWithMinDelay, { once:true });
+  setTimeout(hideSplash, SPLASH_MAX_MS);
+
   /* ===== ZOOM UI (hanya workspaceInner) ===== */
   const zoomRange = document.getElementById('zoomRange');
   const zoomInBtn = document.getElementById('zoomInBtn');
@@ -377,16 +555,13 @@ document.addEventListener('DOMContentLoaded', () => {
     zoomRange.value = String(clamped);
     zoomLabel.textContent = clamped + "%";
 
-    /* penting: redraw canvas setelah zoom supaya tajam & ukuran pas */
     requestAnimationFrame(() => {
       try{
         if (typeof window.DYNO_redraw === "function") window.DYNO_redraw();
       }catch(e){}
       try{
-        const c = document.getElementById("dynoCanvas");
-        if (c && typeof window.renderDyno === "function") window.renderDyno();
+        if (typeof window.renderDyno === "function") window.renderDyno();
       }catch(e){}
-      /* fallback: paksa resize event biar dyno-road.js yang handle */
       window.dispatchEvent(new Event("resize"));
     });
   }
@@ -426,8 +601,4 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 
 </body>
-
 </html>
-
-
-
