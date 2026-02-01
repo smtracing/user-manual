@@ -44,6 +44,9 @@ window.DUAL = window.DUAL || {
   afrSamples100: {},
   afrSource: "LIVE",
 
+  // ===== SEND STATUS SMART (save hanya kalau beda) =====
+  lastSentSig: null,  // signature terakhir yang SUDAH terkirim / hasil READ
+
   status: "UNKNOWN",
   statusTimer: null,
   liveTimer: null
@@ -75,6 +78,84 @@ function setActionStatus_DUAL(text, timeoutMs = 1000) {
       if (el2) el2.textContent = "";
     }, timeoutMs);
   }
+}
+
+/* =========================================================
+   REVISI STATUS KIRIM (FOCUS)
+   - save hanya jika beda (compare signature)
+   - status "MENGIRIM..." tampil minimal 2 detik
+   - sukses: hijau
+========================================================= */
+function setSendStatusStyled_DUAL(text, bg, timeoutMs = 0) {
+  const el = document.getElementById("sendStatus");
+  if (!el) return;
+
+  el.textContent = text || "";
+
+  // styling hanya untuk status kirim (tidak mengubah UI lain)
+  el.style.display = text ? "inline-flex" : "";
+  el.style.alignItems = text ? "center" : "";
+  el.style.justifyContent = text ? "center" : "";
+  el.style.padding = text ? "4px 10px" : "";
+  el.style.borderRadius = text ? "2px" : "";
+  el.style.fontWeight = text ? "800" : "";
+  el.style.fontSize = text ? "11px" : "";
+  el.style.color = text ? "#fff" : "";
+  el.style.background = text ? (bg || "#555") : "";
+
+  if (timeoutMs && timeoutMs > 0) {
+    setTimeout(() => {
+      const e2 = document.getElementById("sendStatus");
+      if (!e2) return;
+      e2.textContent = "";
+      e2.style.background = "";
+      e2.style.padding = "";
+      e2.style.borderRadius = "";
+      e2.style.fontWeight = "";
+      e2.style.fontSize = "";
+      e2.style.color = "";
+      e2.style.display = "";
+      e2.style.alignItems = "";
+      e2.style.justifyContent = "";
+    }, timeoutMs);
+  }
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function norm1(v) {
+  const n = Number(v);
+  if (!isFinite(n)) return 0;
+  return Number(n.toFixed(1));
+}
+function normInt(v) {
+  const n = parseInt(v, 10);
+  return isFinite(n) ? n : 0;
+}
+
+function buildPayloadNormalized_DUAL() {
+  const ptsLen = (typeof rpmPoints_BASIC !== "undefined" && Array.isArray(rpmPoints_BASIC))
+    ? rpmPoints_BASIC.length
+    : (DUAL && DUAL.maps && DUAL.maps[0] && Array.isArray(DUAL.maps[0].curve) ? DUAL.maps[0].curve.length : 0);
+
+  const m0 = DUAL.maps[0] || { limiter: 0, curve: [] };
+  const m1 = DUAL.maps[1] || { limiter: 0, curve: [] };
+
+  const c0 = Array.from({ length: ptsLen }, (_, i) => norm1(m0.curve[i]));
+  const c1 = Array.from({ length: ptsLen }, (_, i) => norm1(m1.curve[i]));
+
+  return {
+    pickup: normInt(DUAL.pickup),
+    maps: [
+      { limiter: normInt(m0.limiter), curve: c0 },
+      { limiter: normInt(m1.limiter), curve: c1 }
+    ]
+  };
+}
+
+function signaturePayload_DUAL(payload) {
+  // signature stabil untuk compare cepat
+  return JSON.stringify(payload);
 }
 
 /* =========================================================
@@ -938,7 +1019,6 @@ function drawDualCurve(ctx, map, index, alpha) {
 /* =========================================================
    DRAG TITIK
 ========================================================= */
-
 function enableDrag_DUAL() {
   const c = document.getElementById("curveCanvas");
   if (!c) return;
@@ -1013,8 +1093,6 @@ function enableDrag_DUAL() {
   }
 
   function onDown(ev) {
-    // kalau UI kamu memang blok saat tidak aktif, biarkan.
-    // tapi jangan bikin drag mati total karena status text.
     const p = posToCanvas(ev);
     const hit = findPointIndex(p.x, p.y);
 
@@ -1061,7 +1139,6 @@ function enableDrag_DUAL() {
   c.addEventListener("pointerup", onUp, { passive: false });
   c.addEventListener("pointercancel", onUp, { passive: false });
 }
-
 
 /* =========================================================
    INIT
@@ -1332,9 +1409,7 @@ function startDualLive(){
       if (DUAL.afrPanelOpen) redrawAFRDetail_DUAL();
 
     } catch (e) {
-      // jangan spam status; cukup diam-diam drop
-      // (kalau mau, bisa aktifkan ini)
-      // console.warn("[LIVE DUAL FAIL]", e);
+      // diam-diam drop
     }
   }, 140);
 }
@@ -1394,6 +1469,13 @@ window.read_DUAL = async function () {
     if (lim0) lim0.value = DUAL.maps[0].limiter;
     if (lim1) lim1.value = DUAL.maps[1].limiter;
 
+    // ===== baseline signature setelah READ (biar SEND "beda" terdeteksi benar) =====
+    try {
+      const base = buildPayloadNormalized_DUAL();
+      const sig = signaturePayload_DUAL(base);
+      DUAL.lastSentSig = sig;
+    } catch {}
+
     buildTable_DUAL();
     redraw_DUAL();
     redrawAFRDetail_DUAL();
@@ -1416,33 +1498,44 @@ window.send_DUAL = async function () {
   const blocked = await shouldBlockReadSend_DUAL("KIRIM");
   if (blocked) return;
 
-  const statusEl = document.getElementById("sendStatus");
   const btn = document.getElementById("sendBtn");
   if (btn) btn.disabled = true;
-  if (statusEl) statusEl.textContent = "KIRIM...";
 
   try {
     if (typeof sendMapToESP_DUAL !== "function") throw new Error("NO_API");
 
-    const payload = {
-      pickup: DUAL.pickup,
-      maps: [
-        { limiter: DUAL.maps[0].limiter, curve: DUAL.maps[0].curve },
-        { limiter: DUAL.maps[1].limiter, curve: DUAL.maps[1].curve }
-      ]
-    };
+    // ===== payload normalized + signature =====
+    const payload = buildPayloadNormalized_DUAL();
+    const sigNow = signaturePayload_DUAL(payload);
+
+    // ===== SAVE hanya kalau beda =====
+    if (DUAL.lastSentSig && sigNow === DUAL.lastSentSig) {
+      setSendStatusStyled_DUAL("TIDAK ADA PERUBAHAN", "#777", 1400);
+      return;
+    }
+
+    // ===== STATUS MENGIRIM minimal 2 detik =====
+    const tStart = Date.now();
+    setSendStatusStyled_DUAL("MENGIRIM...", "#f39c12", 0);
 
     const res = await sendMapToESP_DUAL(payload);
     if (!res || !res.ok) throw new Error((res && res.reason) ? res.reason : "SEND_FAIL");
 
-    if (statusEl) statusEl.textContent = "KIRIM OK";
-    setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 900);
+    const elapsed = Date.now() - tStart;
+    if (elapsed < 2000) await sleep(2000 - elapsed);
+
+    // sukses -> hijau + set signature terkirim
+    DUAL.lastSentSig = sigNow;
+    setSendStatusStyled_DUAL("TERKIRIM SUKSES", "#2ecc71", 1600);
+
   } catch (e) {
     console.warn("[SEND_DUAL FAIL]", e && e.message ? e.message : e);
-    if (statusEl) statusEl.textContent = "KIRIM FAIL";
-    setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 1400);
+
+    // kalau gagal pun, tetap pastikan "mengirim" tidak kedip (min 2 detik)
+    // (kalau status mengirim belum sempat tampil lama)
+    // NOTE: aman walau sudah lewat 2 detik
+    setSendStatusStyled_DUAL("GAGAL KIRIM", "#e74c3c", 1800);
   } finally {
     if (btn) btn.disabled = false;
   }
 };
-
