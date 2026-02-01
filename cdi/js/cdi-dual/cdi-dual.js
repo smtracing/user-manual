@@ -10,6 +10,9 @@
       - BLOK READ & KIRIM jika LIVE ON atau RPM berjalan
       - LIVE boleh OFF walau RPM berjalan
       - AFR PANEL & OVERLAY boleh dipakai walau RPM berjalan (asal status aktif)
+
+   TAMBAHAN (REQUEST):
+   ✅ Kotak STATUS (cdiStatusBox) jadi tombol untuk PILIH ESP (device aktif)
 ========================================================= */
 
 console.log("✅ cdi-dual.js dimuat");
@@ -274,8 +277,10 @@ window.loadCDI_DUAL = function () {
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
       <h3 style="margin:0">CDI POWER SMT A2</h3>
 
+      <!-- STATUS = tombol pilih ESP -->
       <div id="cdiStatusBox"
-        style="font-size:11px;padding:4px 10px;background:#555;color:#fff">
+        title="Klik untuk pilih ESP (device aktif)"
+        style="font-size:11px;padding:4px 10px;background:#555;color:#fff;cursor:pointer">
         STATUS: CEK...
       </div>
 
@@ -329,6 +334,9 @@ window.loadCDI_DUAL = function () {
   enableDrag_DUAL();
   startStatusWatcher_DUAL();
 
+  // ✅ TAMBAHAN: status box jadi tombol pilih ESP
+  hookStatusPicker_DUAL();
+
   // ResizeObserver biar selalu redraw kalau layout berubah (zoom UI / rotate / dll)
   setupResizeObserver_DUAL();
 
@@ -368,11 +376,11 @@ function updateCDIStatus_DUAL(isActive) {
   if (!box) return;
   if (isActive) {
     DUAL.status = "ACTIVE";
-    box.textContent = "CDI DUAL AKTIF";
+    box.textContent = "CDI DUAL AKTIF (KLIK PILIH ESP)";
     box.style.background = "#2ecc71";
   } else {
     DUAL.status = "UNAVAILABLE";
-    box.textContent = "CDI DUAL TIDAK TERSEDIA";
+    box.textContent = "CDI DUAL TIDAK TERSEDIA (KLIK PILIH ESP)";
     box.style.background = "#555";
   }
 }
@@ -1196,7 +1204,6 @@ function setupResizeObserver_DUAL() {
     if (c1) DUAL._ro.observe(c1);
     if (c2) DUAL._ro.observe(c2);
 
-    // tambahan: saat orientasi/resize window
     window.addEventListener("resize", () => {
       if (!DUAL || !DUAL.active) return;
       redraw_DUAL();
@@ -1294,3 +1301,216 @@ window.send_DUAL = async function () {
     if (btn) btn.disabled = false;
   }
 };
+
+/* =========================================================
+   STATUS BOX = TOMBOL PILIH ESP (SCAN + SELECT)
+========================================================= */
+
+function hookStatusPicker_DUAL() {
+  const box = document.getElementById("cdiStatusBox");
+  if (!box) return;
+
+  if (box._espPickerHooked) return;
+  box._espPickerHooked = true;
+
+  box.addEventListener("click", async () => {
+    if (!DUAL || !DUAL.active) return;
+
+    setActionStatus_DUAL("SCAN ESP...", 900);
+
+    try {
+      const list = await listOnlineESPs_DUAL();
+      showESPChooserModal_DUAL(list);
+    } catch (e) {
+      console.warn("[ESP PICK FAIL]", e && e.message ? e.message : e);
+      setActionStatus_DUAL("ESP TIDAK DITEMUKAN", 1400);
+    }
+  });
+}
+
+async function listOnlineESPs_DUAL() {
+  // Jika esp-api-dual.js menyediakan listESP_DUAL(), gunakan
+  if (typeof window.listESP_DUAL === "function") {
+    const r = await window.listESP_DUAL();
+    if (Array.isArray(r) && r.length) return r;
+  }
+
+  // Fallback scan internal (HTTP /status)
+  const ranges = [
+    { base: "192.168.43.", from: 2, to: 254 }, // hotspot Android umum
+    { base: "192.168.1.",  from: 2, to: 80  }, // router umum
+    { base: "192.168.0.",  from: 2, to: 80  }
+  ];
+
+  const timeoutMs = 280;
+  const parallel = 18;
+
+  const candidates = [];
+  for (const r of ranges) {
+    for (let i = r.from; i <= r.to; i++) {
+      candidates.push(`http://${r.base}${i}`);
+    }
+  }
+
+  async function probe(host) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+
+      const res = await fetch(`${host}/status`, { cache: "no-store", signal: ctrl.signal });
+      clearTimeout(t);
+      if (!res.ok) return null;
+
+      const j = await res.json();
+      if (!j || typeof j.online === "undefined") return null;
+
+      return {
+        host,
+        online: !!j.online,
+        active_cdi: j.active_cdi || "",
+        engine_running: !!j.engine_running,
+        chip_id: j.chip_id || "",
+        name: j.name || ""
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  const found = [];
+
+  // scan cepat sampai ketemu minimal 1
+  for (let idx = 0; idx < candidates.length; ) {
+    const batch = [];
+    for (let k = 0; k < parallel && idx < candidates.length; k++, idx++) {
+      batch.push(probe(candidates[idx]));
+    }
+    const res = await Promise.all(batch);
+    for (const item of res) {
+      if (item && item.online) found.push(item);
+    }
+    if (found.length >= 1) break;
+  }
+
+  if (!found.length) throw new Error("ESP_NOT_FOUND");
+  return found;
+}
+
+function showESPChooserModal_DUAL(list) {
+  if (!Array.isArray(list) || !list.length) {
+    setActionStatus_DUAL("ESP TIDAK ADA", 1200);
+    return;
+  }
+
+  const old = document.getElementById("espPickModal");
+  if (old) old.remove();
+
+  const wrap = document.createElement("div");
+  wrap.id = "espPickModal";
+  wrap.style.cssText = `
+    position:fixed;inset:0;z-index:99999;
+    background:rgba(0,0,0,0.55);
+    display:flex;align-items:center;justify-content:center;
+    padding:18px;
+  `;
+
+  const card = document.createElement("div");
+  card.style.cssText = `
+    width:min(520px, 96vw);
+    background:#0f1118;border:1px solid rgba(255,255,255,0.12);
+    box-shadow:0 10px 40px rgba(0,0,0,0.6);
+    border-radius:8px;padding:14px;
+    color:#fff;
+  `;
+
+  const title = document.createElement("div");
+  title.textContent = "PILIH ESP AKTIF";
+  title.style.cssText = `font-weight:900;font-size:12px;letter-spacing:.3px;margin-bottom:10px;`;
+
+  const sub = document.createElement("div");
+  sub.textContent = "Klik salah satu host. Setelah dipilih, web akan pakai ESP itu.";
+  sub.style.cssText = `font-size:11px;color:rgba(255,255,255,0.75);margin-bottom:10px;line-height:1.3;`;
+
+  const listBox = document.createElement("div");
+  listBox.style.cssText = `
+    display:flex;flex-direction:column;gap:8px;
+    max-height:55vh;overflow:auto;padding-right:4px;
+  `;
+
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = `display:flex;justify-content:flex-end;gap:8px;margin-top:12px;`;
+
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "TUTUP";
+  closeBtn.style.cssText = `
+    height:30px;padding:0 14px;border:none;cursor:pointer;
+    background:#444;color:#fff;font-weight:800;border-radius:6px;
+  `;
+  closeBtn.onclick = () => wrap.remove();
+
+  function rowText(it) {
+    const name = (it.name || it.chip_id || "").trim();
+    const head = name ? name : "ESP32";
+    const cdi  = (it.active_cdi || "-").toString();
+    const run  = it.engine_running ? "RUN" : "IDLE";
+    return `${head} | ${cdi} | ${run} | ${it.host}`;
+  }
+
+  list.forEach((it) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = rowText(it);
+    b.style.cssText = `
+      width:100%;text-align:left;
+      padding:10px 10px;border-radius:6px;
+      border:1px solid rgba(255,255,255,0.12);
+      background:rgba(255,255,255,0.06);
+      color:#fff;cursor:pointer;font-weight:700;font-size:11px;
+    `;
+    b.onmouseenter = () => b.style.filter = "brightness(1.12)";
+    b.onmouseleave = () => b.style.filter = "none";
+
+    b.onclick = async () => {
+      try {
+        // Jika esp-api-dual.js punya setter -> tanpa reload
+        if (typeof window.setESPHost_DUAL === "function") {
+          await window.setESPHost_DUAL(it.host);
+        } else {
+          // Fallback: simpan host dan reload (esp-api biasanya baca ini)
+          localStorage.setItem("ESP_HOST_DUAL_LAST_OK", it.host);
+          setActionStatus_DUAL("ESP DIPILIH - RELOAD", 1000);
+          wrap.remove();
+          location.reload();
+          return;
+        }
+
+        wrap.remove();
+        setActionStatus_DUAL("ESP DIPILIH", 900);
+
+        // paksa update status segera
+        try {
+          const st = await getESPStatus_DUAL();
+          updateCDIStatus_DUAL(!!(st && st.online && st.active_cdi === "dual"));
+        } catch {}
+
+      } catch (e) {
+        console.warn("[SET ESP FAIL]", e && e.message ? e.message : e);
+        setActionStatus_DUAL("GAGAL PILIH ESP", 1400);
+      }
+    };
+
+    listBox.appendChild(b);
+  });
+
+  wrap.addEventListener("click", (ev) => {
+    if (ev.target === wrap) wrap.remove();
+  });
+
+  btnRow.appendChild(closeBtn);
+  card.appendChild(title);
+  card.appendChild(sub);
+  card.appendChild(listBox);
+  card.appendChild(btnRow);
+  wrap.appendChild(card);
+  document.body.appendChild(wrap);
+}
