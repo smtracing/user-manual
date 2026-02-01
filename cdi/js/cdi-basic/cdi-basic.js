@@ -92,7 +92,7 @@ window.loadCDI_BASIC = function() {
     </div>
 
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      <h3 style="margin:0">CDI BASIC – Ignition Curve</h3>
+      <h3 style="margin:0">CDI POWER BAND A1</h3>
       <div id="cdiStatusBox"
         style="font-size:11px;padding:4px 10px;border-radius:4px;background:#555;color:#fff;user-select:none">
         STATUS: CEK...
@@ -514,3 +514,4 @@ async function send_BASIC() {
 function initCurve_BASIC() {
   redraw_BASIC();
 }
+
