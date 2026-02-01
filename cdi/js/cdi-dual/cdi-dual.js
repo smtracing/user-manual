@@ -938,61 +938,103 @@ function drawDualCurve(ctx, map, index, alpha) {
 /* =========================================================
    DRAG TITIK
 ========================================================= */
+
 function enableDrag_DUAL() {
   const c = document.getElementById("curveCanvas");
   if (!c) return;
+
   let idx = null;
+  let dragging = false;
 
-  c.onmousedown = e => {
-    if (window.__DUAL_DRAG_LOCK__) return;
-
+  function getPos(ev) {
     const r = c.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    const cap = DUAL.pickup ?? (typeof TIMING_MAX !== "undefined" ? TIMING_MAX : 80);
+    const x = (ev.clientX - r.left);
+    const y = (ev.clientY - r.top);
+    return { x, y };
+  }
 
-    const PLOT_L = (typeof PLOT_LEFT !== "undefined" ? PLOT_LEFT : 65);
-    const AX_R = (typeof AXIS_RIGHT_PADDING !== "undefined" ? AXIS_RIGHT_PADDING : 20);
-    const AX_B = (typeof AXIS_BOTTOM !== "undefined" ? AXIS_BOTTOM : 30);
-    const AX_T = (typeof AXIS_TOP_PADDING !== "undefined" ? AXIS_TOP_PADDING : 10);
+  function hitTestPoint(mx, my) {
+    const cap = DUAL.pickup ?? TIMING_MAX;
+    const plotW = c.width - PLOT_LEFT - AXIS_RIGHT_PADDING;
+    const plotH = c.height - AXIS_BOTTOM - AXIS_TOP_PADDING;
 
-    const pts = (typeof rpmPoints_BASIC !== "undefined" ? rpmPoints_BASIC : []);
+    const map = DUAL.maps[DUAL.activeMap];
 
-    DUAL.maps[DUAL.activeMap].curve.forEach((v, i) => {
-      if (DUAL.maps[DUAL.activeMap].limiter && pts[i] > DUAL.maps[DUAL.activeMap].limiter) return;
+    // cari titik terdekat (radius 10 biar enak di jari)
+    let best = null;
+    let bestD = 999999;
 
-      const x = PLOT_L + (i / (pts.length - 1)) * (c.width - PLOT_L - AX_R);
-      const y = AX_T + (c.height - AX_B - AX_T) -
-        (Math.min(v, cap) / cap) * (c.height - AX_B - AX_T);
+    map.curve.forEach((v, i) => {
+      if (map.limiter && rpmPoints_BASIC[i] > map.limiter) return;
 
-      if (Math.hypot(mx - x, my - y) < 8) idx = i;
+      const x = PLOT_LEFT + (i / (rpmPoints_BASIC.length - 1)) * plotW;
+      const y = AXIS_TOP_PADDING + plotH - (Math.min(v, cap) / cap) * plotH;
+
+      const d = Math.hypot(mx - x, my - y);
+      if (d < bestD) { bestD = d; best = i; }
     });
-  };
 
-  c.onmousemove = e => {
-    if (window.__DUAL_DRAG_LOCK__) return;
-    if (idx === null) return;
+    if (best !== null && bestD <= 10) return best;
+    return null;
+  }
 
-    const r = c.getBoundingClientRect();
-    const cap = DUAL.pickup ?? (typeof TIMING_MAX !== "undefined" ? TIMING_MAX : 80);
+  function setValueByY(my) {
+    const cap = DUAL.pickup ?? TIMING_MAX;
+    const plotH = c.height - AXIS_BOTTOM - AXIS_TOP_PADDING;
 
-    const AX_B = (typeof AXIS_BOTTOM !== "undefined" ? AXIS_BOTTOM : 30);
-    const AX_T = (typeof AXIS_TOP_PADDING !== "undefined" ? AXIS_TOP_PADDING : 10);
-
-    let val = cap * (1 - (e.clientY - r.top - AX_T) / (c.height - AX_B - AX_T));
-    const tMin = (typeof TIMING_MIN !== "undefined" ? TIMING_MIN : 0);
-    val = Math.max(tMin, Math.min(cap, val));
+    let val = cap * (1 - (my - AXIS_TOP_PADDING) / plotH);
+    val = Math.max(TIMING_MIN, Math.min(cap, val));
 
     DUAL.maps[DUAL.activeMap].curve[idx] = val;
 
+    // update input tabel
     const inp = document.querySelector(`#rpmTable tr:nth-child(${idx + 2}) input`);
     if (inp) inp.value = val.toFixed(1);
 
     redraw_DUAL();
     redrawAFRDetail_DUAL();
+  }
+
+  // ===== Pointer Events: works for touch + mouse =====
+  c.onpointerdown = (ev) => {
+    // biar tidak scroll
+    ev.preventDefault();
+
+    // pastikan canvas size up to date sebelum hit test
+    c.width = c.clientWidth;
+    c.height = c.clientHeight;
+
+    const { x, y } = getPos(ev);
+    const found = hitTestPoint(x, y);
+    if (found === null) return;
+
+    idx = found;
+    dragging = true;
+
+    try { c.setPointerCapture(ev.pointerId); } catch {}
+    setValueByY(y); // langsung update saat tap
   };
 
-  window.onmouseup = () => (idx = null);
+  c.onpointermove = (ev) => {
+    if (!dragging || idx === null) return;
+    ev.preventDefault();
+
+    const { y } = getPos(ev);
+    setValueByY(y);
+  };
+
+  function endDrag(ev) {
+    if (!dragging) return;
+    dragging = false;
+    idx = null;
+    try { c.releasePointerCapture(ev.pointerId); } catch {}
+  }
+
+  c.onpointerup = endDrag;
+  c.onpointercancel = endDrag;
+  c.onpointerleave = endDrag;
 }
+
 
 /* =========================================================
    INIT
@@ -1376,3 +1418,4 @@ window.send_DUAL = async function () {
     if (btn) btn.disabled = false;
   }
 };
+
