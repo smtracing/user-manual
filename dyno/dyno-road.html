@@ -388,22 +388,21 @@
             </div>
 
             <div class="btns">
-              <!-- ✅ ARM + KOTAK STATUS (selalu tampil) -->
-              <div style="display:flex;align-items:center;gap:10px;">
-                <button class="btn gray" onclick="DYNO_arm()">ARM</button>
-
-                <!-- default OFFLINE -->
+              <!-- ✅ KOTAK STATUS DI KIRI ARM + tinggi lebih kecil -->
+              <div style="display:flex;align-items:flex-end;gap:10px;">
                 <div id="d_connBox"
-                     style="height:36px;min-width:120px;padding:0 14px;
+                     style="height:30px;min-width:170px;padding:0 12px;
                             display:flex;align-items:center;justify-content:center;
                             border-radius:2px;
                             border:1px solid rgba(255,255,255,0.15);
-                            background:rgba(160,160,160,0.25);
-                            color:rgba(255,255,255,0.80);
-                            font-weight:900;font-size:12px;letter-spacing:.08em;
+                            background:#6f6f6f;   /* OFFLINE abu pekat */
+                            color:#ffffff;
+                            font-weight:900;font-size:12px;letter-spacing:.04em;
                             user-select:none;">
-                  OFFLINE
+                  DYNO TIDAK TERHUBUNG
                 </div>
+
+                <button class="btn gray" onclick="DYNO_arm()">ARM</button>
               </div>
 
               <button class="btn green" onclick="DYNO_run()">RUN</button>
@@ -609,28 +608,27 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   /* ======================================================
-     ✅ CONNECT STATUS BOX (OFFLINE/ONLINE)
-     - OFFLINE = abu
-     - ONLINE  = hijau
+     ✅ CONNECT STATUS BOX (DYNO TERHUBUNG / TIDAK)
+     - OFFLINE: kotak abu pekat + text putih
+     - ONLINE : kotak hijau pekat + text putih
      - sumber status dari esp-api-dual.js:
-       window.DYNO_getConn_DUAL() -> { connected: true/false, label?: "SIM"/"ESP32" }
+       window.DYNO_getConn_DUAL() -> { connected: true/false }
   ====================================================== */
   const box = document.getElementById("d_connBox");
 
-  function setConnUI(connected, label){
+  function setConnUI(connected){
     if (!box) return;
 
     if (connected){
-      const tag = label ? String(label).toUpperCase() : "ONLINE";
-      box.textContent = tag;
-      box.style.background = "rgba(46,204,113,0.28)";
-      box.style.borderColor = "rgba(46,204,113,0.45)";
-      box.style.color = "rgba(255,255,255,0.92)";
+      box.textContent = "DYNO TERHUBUNG";
+      box.style.background = "#12b85a";           /* hijau pekat */
+      box.style.borderColor = "#0ea84f";
+      box.style.color = "#ffffff";
     } else {
-      box.textContent = "OFFLINE";
-      box.style.background = "rgba(160,160,160,0.25)";
+      box.textContent = "DYNO TIDAK TERHUBUNG";
+      box.style.background = "#6f6f6f";           /* abu pekat */
       box.style.borderColor = "rgba(255,255,255,0.15)";
-      box.style.color = "rgba(255,255,255,0.80)";
+      box.style.color = "#ffffff";
     }
   }
 
@@ -642,10 +640,10 @@ document.addEventListener('DOMContentLoaded', () => {
     try{
       if (typeof window.DYNO_getConn_DUAL === "function"){
         const s = await window.DYNO_getConn_DUAL();
-        setConnUI(!!(s && s.connected), (s && s.label) ? s.label : (s && s.connected ? "ONLINE" : ""));
+        setConnUI(!!(s && s.connected));
       } else {
-        // fallback: kalau API snapshot ada -> anggap SIM online
-        setConnUI(typeof window.DYNO_getSnapshot_DUAL === "function", "SIM");
+        // kalau fungsi belum ada, anggap tidak terhubung
+        setConnUI(false);
       }
     }catch(e){
       setConnUI(false);
