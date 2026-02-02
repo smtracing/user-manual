@@ -16,6 +16,14 @@ console.log("✅ dyno-road.js dimuat (RPM + HP + TQ + IGN + AFR + SLIP overlay)"
   const TQ_COLOR   = "rgb(0,255,102)";
   const HP_COLOR   = "rgb(52,152,219)";
 
+  // ✅ indikator koneksi
+  const CONN_ON_BG  = "rgba(46, 204, 113, 0.30)";   // hijau
+  const CONN_ON_BD  = "rgba(46, 204, 113, 0.60)";
+  const CONN_OFF_BG = "rgba(255,255,255,0.08)";     // abu
+  const CONN_OFF_BD = "rgba(255,255,255,0.14)";
+  const CONN_ON_TX  = "rgba(200,255,220,0.95)";
+  const CONN_OFF_TX = "rgba(220,220,220,0.80)";
+
   const DYNO = {
     armed:false,
     running:false,
@@ -56,6 +64,10 @@ console.log("✅ dyno-road.js dimuat (RPM + HP + TQ + IGN + AFR + SLIP overlay)"
 
     polling:false,
 
+    // ✅ koneksi (dari esp-api-dual snapshot)
+    linkOk:false,
+    linkText:"DISCONNECTED",
+
     c:null, ctx:null, W:0,H:0
   };
 
@@ -79,6 +91,10 @@ console.log("✅ dyno-road.js dimuat (RPM + HP + TQ + IGN + AFR + SLIP overlay)"
 
     ensureStatusProgressEl();
     setStatus("READY");
+
+    // ✅ buat indikator koneksi + default OFF
+    ensureConnBadgeEl();
+    setConnBadge(false, "OFF");
 
     DYNO_draw();
   };
@@ -215,9 +231,29 @@ console.log("✅ dyno-road.js dimuat (RPM + HP + TQ + IGN + AFR + SLIP overlay)"
     DYNO.polling = true;
 
     try {
-      if (typeof window.DYNO_getSnapshot_DUAL !== "function") return;
+      if (typeof window.DYNO_getSnapshot_DUAL !== "function") {
+        // ✅ kalau backend tidak ada = dianggap tidak terhubung
+        DYNO.linkOk = false;
+        DYNO.linkText = "OFF";
+        setConnBadge(false, "OFF");
+        return;
+      }
 
       const snap = await window.DYNO_getSnapshot_DUAL();
+
+      // ✅ koneksi: ambil dari snapshot (linkOk/linkText)
+      // kalau backend lama tidak punya field, tetap anggap ON karena snapshot bisa diambil
+      if (snap && typeof snap === "object") {
+        if ("linkOk" in snap) DYNO.linkOk = !!snap.linkOk;
+        else DYNO.linkOk = true;
+
+        if ("linkText" in snap && snap.linkText) DYNO.linkText = String(snap.linkText);
+        else DYNO.linkText = DYNO.linkOk ? "ON" : "OFF";
+      } else {
+        DYNO.linkOk = false;
+        DYNO.linkText = "OFF";
+      }
+      setConnBadge(DYNO.linkOk, DYNO.linkText);
 
       DYNO.targetM  = snap.targetM || DYNO.targetM;
 
@@ -274,7 +310,10 @@ console.log("✅ dyno-road.js dimuat (RPM + HP + TQ + IGN + AFR + SLIP overlay)"
         window.DYNO_stop();
       }
     } catch (e) {
-      // ignore
+      // ✅ kalau gagal ambil snapshot, anggap putus
+      DYNO.linkOk = false;
+      DYNO.linkText = "OFF";
+      setConnBadge(false, "OFF");
     } finally {
       DYNO.polling = false;
     }
@@ -762,6 +801,78 @@ console.log("✅ dyno-road.js dimuat (RPM + HP + TQ + IGN + AFR + SLIP overlay)"
     ctx.closePath();
     if (fill) ctx.fill();
     if (stroke) ctx.stroke();
+  }
+
+  // ==========================
+  // ✅ CONNECTION BADGE (samping ARM)
+  // ==========================
+  function ensureConnBadgeEl(){
+    if (document.getElementById("d_connBadge")) return;
+
+    const armBtn = findArmButton();
+    if (!armBtn) return;
+
+    const badge = document.createElement("div");
+    badge.id = "d_connBadge";
+    badge.textContent = "OFF";
+    badge.style.display = "inline-flex";
+    badge.style.alignItems = "center";
+    badge.style.justifyContent = "center";
+    badge.style.height = "28px";
+    badge.style.minWidth = "72px";
+    badge.style.padding = "0 10px";
+    badge.style.marginLeft = "8px";
+    badge.style.borderRadius = "6px";
+    badge.style.font = "900 12px Arial";
+    badge.style.letterSpacing = "0.3px";
+    badge.style.userSelect = "none";
+    badge.style.whiteSpace = "nowrap";
+
+    // default OFF
+    badge.style.background = CONN_OFF_BG;
+    badge.style.border = "1px solid " + CONN_OFF_BD;
+    badge.style.color = CONN_OFF_TX;
+
+    // insert setelah ARM button
+    if (armBtn.nextSibling) armBtn.parentNode.insertBefore(badge, armBtn.nextSibling);
+    else armBtn.parentNode.appendChild(badge);
+  }
+
+  function setConnBadge(ok, text){
+    ensureConnBadgeEl();
+    const el = document.getElementById("d_connBadge");
+    if (!el) return;
+
+    const t = (text && String(text).trim()) ? String(text).trim() : (ok ? "ON" : "OFF");
+    el.textContent = t;
+
+    if (ok){
+      el.style.background = CONN_ON_BG;
+      el.style.border = "1px solid " + CONN_ON_BD;
+      el.style.color = CONN_ON_TX;
+    } else {
+      el.style.background = CONN_OFF_BG;
+      el.style.border = "1px solid " + CONN_OFF_BD;
+      el.style.color = CONN_OFF_TX;
+    }
+  }
+
+  function findArmButton(){
+    // 1) id umum
+    let b = document.getElementById("btnArm") || document.getElementById("armBtn") || document.getElementById("d_armBtn");
+    if (b) return b;
+
+    // 2) onclick mengandung DYNO_arm
+    b = document.querySelector('button[onclick*="DYNO_arm"]');
+    if (b) return b;
+
+    // 3) cari button teks "ARM"
+    const all = Array.from(document.querySelectorAll("button"));
+    for (const x of all){
+      const tx = (x.textContent || "").trim().toUpperCase();
+      if (tx === "ARM") return x;
+    }
+    return null;
   }
 
   // ==========================
