@@ -56,81 +56,8 @@ console.log("✅ dyno-road.js dimuat (RPM + HP + TQ + IGN + AFR + SLIP overlay)"
 
     polling:false,
 
-    c:null, ctx:null, W:0,H:0,
-
-    // ✅ CONNECT STATUS (ESP link)
-    connOk:false,
-    connSim:true
+    c:null, ctx:null, W:0,H:0
   };
-
-  // ==========================
-  // ✅ CONNECT BOX (AUTO CREATE)
-  // ==========================
-  function ensureConnBoxEl(){
-    let box = document.getElementById("d_connBox");
-    if (box) return box;
-
-    // cari container tombol
-    const btns = document.querySelector(".controls .btns") || document.querySelector(".btns");
-    if (!btns) return null;
-
-    // cari tombol ARM (biasanya tombol pertama dengan onclick DYNO_arm)
-    const armBtn = Array.from(btns.querySelectorAll("button"))
-      .find(b => (b.getAttribute("onclick") || "").includes("DYNO_arm")) || btns.querySelector("button");
-
-    box = document.createElement("span");
-    box.id = "d_connBox";
-    box.textContent = "OFF";
-
-    // inline style (tanpa sentuh CSS file)
-    box.style.display = "inline-flex";
-    box.style.alignItems = "center";
-    box.style.justifyContent = "center";
-    box.style.height = "36px";
-    box.style.minWidth = "74px";
-    box.style.padding = "0 12px";
-    box.style.marginLeft = "8px";
-    box.style.borderRadius = "10px";
-    box.style.border = "1px solid rgba(255,255,255,.18)";
-    box.style.background = "rgba(140,140,140,.25)";
-    box.style.color = "rgba(255,255,255,.75)";
-    box.style.fontWeight = "900";
-    box.style.letterSpacing = ".06em";
-    box.style.fontSize = "12px";
-    box.style.userSelect = "none";
-    box.style.whiteSpace = "nowrap";
-
-    if (armBtn && armBtn.parentElement === btns){
-      // sisipkan setelah tombol ARM
-      if (armBtn.nextSibling) btns.insertBefore(box, armBtn.nextSibling);
-      else btns.appendChild(box);
-    } else {
-      btns.appendChild(box);
-    }
-    return box;
-  }
-
-  function setConnBox(isOn, isSim){
-    DYNO.connOk = !!isOn;
-    DYNO.connSim = !!isSim;
-
-    const box = ensureConnBoxEl();
-    if (!box) return;
-
-    if (DYNO.connOk){
-      box.textContent = isSim ? "ON (SIM)" : "ON";
-      box.style.background = "rgba(0,255,100,.22)";
-      box.style.border = "1px solid rgba(0,255,100,.35)";
-      box.style.color = "rgba(255,255,255,.92)";
-      box.style.boxShadow = "0 0 18px rgba(0,255,100,.18)";
-    } else {
-      box.textContent = "OFF";
-      box.style.background = "rgba(140,140,140,.25)";
-      box.style.border = "1px solid rgba(255,255,255,.18)";
-      box.style.color = "rgba(255,255,255,.75)";
-      box.style.boxShadow = "none";
-    }
-  }
 
   // ==========================
   // PUBLIC API
@@ -152,20 +79,6 @@ console.log("✅ dyno-road.js dimuat (RPM + HP + TQ + IGN + AFR + SLIP overlay)"
 
     ensureStatusProgressEl();
     setStatus("READY");
-
-    // ✅ pastikan kotak status selalu ada
-    ensureConnBoxEl();
-    setConnBox(false, true);
-
-    // ✅ coba baca status koneksi dari esp-api-dual (kalau tersedia)
-    try{
-      if (typeof window.DYNO_getConnStatus_DUAL === "function"){
-        const c = window.DYNO_getConnStatus_DUAL();
-        if (c && typeof c === "object"){
-          setConnBox(!!c.connOk, !!c.connSim);
-        }
-      }
-    }catch(e){}
 
     DYNO_draw();
   };
@@ -305,13 +218,6 @@ console.log("✅ dyno-road.js dimuat (RPM + HP + TQ + IGN + AFR + SLIP overlay)"
       if (typeof window.DYNO_getSnapshot_DUAL !== "function") return;
 
       const snap = await window.DYNO_getSnapshot_DUAL();
-
-      // ✅ koneksi (terhubung dari esp-api-dual)
-      if (snap && typeof snap === "object"){
-        if ("connOk" in snap || "connSim" in snap){
-          setConnBox(!!snap.connOk, !!snap.connSim);
-        }
-      }
 
       DYNO.targetM  = snap.targetM || DYNO.targetM;
 
@@ -489,6 +395,7 @@ console.log("✅ dyno-road.js dimuat (RPM + HP + TQ + IGN + AFR + SLIP overlay)"
       ctx.moveTo(PAD_L, yMid);
       ctx.lineTo(xPlotRight, yMid);
       ctx.stroke();
+      // teks "AFR 14.7" sudah dihilangkan sebelumnya
     }
 
     // ===== AFR ticks + labels =====
@@ -1116,3 +1023,4 @@ console.log("✅ dyno-road.js dimuat (RPM + HP + TQ + IGN + AFR + SLIP overlay)"
   function roundUp(v, step){ return Math.ceil(v/step)*step; }
 
 })();
+
