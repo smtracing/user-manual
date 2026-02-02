@@ -232,6 +232,8 @@
 
     /* ======================================================
        SPLASH (HTML) + LOADING BAR (Android/PC)
+       - Aman portrait/landscape (bar tidak hilang saat rotate)
+       - Durasi: max 2 detik (di JS)
     ====================================================== */
     #splash{
       position:fixed;
@@ -321,6 +323,9 @@
         margin-top: 6px;
       }
     }
+
+    /* OPTIONAL: kunci gesture canvas dyno kalau butuh (tidak ganggu scroll page) */
+    /* #dynoCanvas{ touch-action:none; } */
   </style>
 </head>
 
@@ -385,28 +390,32 @@
                 <label>PPR BELAKANG</label>
                 <input id="d_pprRear" type="number" step="1" value="1"/>
               </div>
+              <!-- TICK DIHAPUS -->
+              <!-- RPM START/END DIHAPUS (dikunci di JS) -->
             </div>
 
             <div class="btns">
               <button class="btn gray" onclick="DYNO_arm()">ARM</button>
 
-              <!-- ✅ KOTAK STATUS KONEKSI (INLINE STYLE, TANPA SENTUH CSS FILE) -->
+              <!-- ✅ KOTAK STATUS KONEKSI (SELALU ADA) -->
               <div id="d_connBox"
                    style="
-                    display:inline-flex;
-                    align-items:center;
-                    justify-content:center;
-                    height:40px;
-                    min-width:72px;
-                    padding:0 12px;
-                    border-radius:10px;
-                    font-weight:900;
-                    letter-spacing:.06em;
-                    border:1px solid rgba(255,255,255,.16);
-                    background: rgba(120,120,120,.22);
-                    color: rgba(255,255,255,.85);
-                    user-select:none;
-                    margin: 0 6px;
+                     display:inline-flex;
+                     align-items:center;
+                     justify-content:center;
+                     height:36px;
+                     min-width:74px;
+                     padding:0 12px;
+                     margin-left:8px;
+                     border-radius:10px;
+                     border:1px solid rgba(255,255,255,.18);
+                     background:rgba(140,140,140,.25);
+                     color:rgba(255,255,255,.75);
+                     font-weight:900;
+                     letter-spacing:.06em;
+                     font-size:12px;
+                     user-select:none;
+                     white-space:nowrap;
                    ">OFF</div>
 
               <button class="btn green" onclick="DYNO_run()">RUN</button>
@@ -530,15 +539,12 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 
-  /* ✅ PANGGIL INIT (WAJIB) */
-  if (typeof window.DYNO_init === "function") window.DYNO_init();
-
-  /* ===== SPLASH CONTROL ===== */
+  /* ===== SPLASH CONTROL (maks 2 detik) ===== */
   const splash = document.getElementById('splash');
   let splashGone = false;
 
-  const SPLASH_MIN_MS = 9000;
-  const SPLASH_MAX_MS = 11000;
+  const SPLASH_MIN_MS = 9000;   // minimal tampil (biar tidak kedip)
+  const SPLASH_MAX_MS = 11000;  // maksimal tampil
   const splashStart  = Date.now();
 
   function hideSplash(){
@@ -613,50 +619,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/dyno/service-worker.js").catch(()=>{});
   }
-
-  /* =========================================================
-     ✅ STATUS KONEKSI (INDIKATOR SAJA) — TANPA UBAH CSS FILE
-     - Hijau = aktif (simulasi/terhubung)
-     - Abu  = tidak aktif
-     - Sumber: esp-api-dual.js (pakai DYNO_getSnapshot_DUAL sebagai "ping")
-  ========================================================= */
-  const connEl = document.getElementById("d_connBox");
-
-  function setConn(active, label){
-    if (!connEl) return;
-    connEl.textContent = label || (active ? "ON" : "OFF");
-    if (active){
-      connEl.style.background = "rgba(0,255,100,.22)";
-      connEl.style.borderColor = "rgba(0,255,100,.35)";
-      connEl.style.color = "#fff";
-    } else {
-      connEl.style.background = "rgba(120,120,120,.22)";
-      connEl.style.borderColor = "rgba(255,255,255,.16)";
-      connEl.style.color = "rgba(255,255,255,.85)";
-    }
-  }
-
-  // default OFF sampai ping sukses
-  setConn(false, "OFF");
-
-  async function pingConn(){
-    try{
-      // kalau fungsi snapshot ada dan bisa dipanggil, anggap "AKTIF" (simulasi sekarang)
-      if (typeof window.DYNO_getSnapshot_DUAL !== "function"){
-        setConn(false, "OFF");
-        return;
-      }
-      await window.DYNO_getSnapshot_DUAL(); // kalau error, masuk catch
-      setConn(true, "ON");
-    }catch(e){
-      setConn(false, "OFF");
-    }
-  }
-
-  // ping cepat, lalu interval
-  pingConn();
-  setInterval(pingConn, 500);
-
 });
 </script>
 
