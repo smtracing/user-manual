@@ -1,23 +1,8 @@
 /* =========================================================
    esp-api-dual.js — DYNO-ROAD ONLY (SIM) — TIME FROM FRONT PPR
-   - TIME(s) dihitung dari event pulsa PPR depan (bukan dari tombol RUN)
-   - START time: setelah 1 putaran roda depan (>= pprFront pulses) sejak RUN
-   - STOP: saat jarak dari PPR depan mencapai targetM
-   - SPEED LIVE: window pulses PPR depan (stabil)
-   - RPM: smooth (sim) dari vTrue * ratio
-   - HP: rear speed + berat + percepatan (tanpa aero)
-   - IGN/AFR: simulasi (kalau ESP32 asli, tinggal kirim real)
-
-   ✅ SLIP (sim + total):
-   - Simulasi slip hanya di awal start (jarak sangat pendek)
-   - Total slip ditampilkan sebagai PUNCAK (peak), bukan nilai terakhir
-   - 1 putaran slip = 1% (tidak dikali 100)
-   - Freeze slip setelah start lewat (biar tidak naik terus)
-
-   NANTI ESP32 ASLI:
-   - SIM_IDEAL_REAR = false
-   - Generator pulse diganti input interrupt
-   - frontPulseClockMs gunakan timestamp real interrupt (micros/millis)
+   + CONNECT STATUS SIM (TERHUBUNG / TIDAK)
+   - DYNO_getConn_DUAL() dipakai dyno-road.js untuk kotak status
+   - Simulasi: status koneksi ON/OFF bergantian
 ========================================================= */
 
 console.log("%c[ESP-API-DUAL] DYNO-ROAD SIM (TIME FROM FRONT PPR)", "color:#4cff8f");
@@ -47,11 +32,17 @@ const FRONT_WIN_MS = 100;
 // ✅ SLIP SIM (awal start)
 // =========================
 const SLIP_SIM_ENABLE = true;
-// simulasi slip hanya di awal start (jarak sangat pendek)
 const SLIP_SIM_RPM_MIN = 2000;
 const SLIP_SIM_RPM_MAX = 5000;
-const SLIP_SIM_DIST_M  = 1.0;   // slip hanya < 1 meter sejak RUN
-const SLIP_SIM_EXTRA_MAX = 1.5; // max ekstra putaran belakang (+35%)
+const SLIP_SIM_DIST_M  = 1.0;
+const SLIP_SIM_EXTRA_MAX = 1.5;
+
+// =========================
+// ✅ CONNECT STATUS SIM
+// =========================
+// ON/OFF bergantian. Ini hanya indikator, tidak mengubah dyno sim.
+const CONN_SIM_ENABLE = true;
+const CONN_TOGGLE_MS  = 3500;     // ganti status tiap 3.5 detik
 
 const __DYNO_DUAL = {
   armed: false,
@@ -87,7 +78,7 @@ const __DYNO_DUAL = {
   _logAccMs: 0,
 
   // runtime loop
-  t0: 0,          // (legacy) tombol run, masih dipakai utk safety timeout
+  t0: 0,
   lastNow: 0,
   _accMs: 0,
   _timer: null,
@@ -99,23 +90,23 @@ const __DYNO_DUAL = {
   _rearPulseFrac:  0,
 
   // motion true internal (kontinu)
-  _vTrue: 0,      // m/s
-  _distTrue: 0,   // m
+  _vTrue: 0,
+  _distTrue: 0,
 
   // ===========================
   // ✅ TIME FROM FRONT PPR
   // ===========================
-  _timeStarted: false,          // mulai hitung t setelah 1 putaran depan
-  _frontRunStartPulses: 0,      // pulses saat RUN dimulai
-  _frontStartPulses: 0,         // pulses saat time mulai (setelah 1 putaran)
-  _frontPulseClockMs: 0,        // timestamp "pulse time" terakhir (sim)
-  _t0PulseMs: 0,                // timestamp saat start time
-  _distM_fromFront: 0,          // jarak dyno dari PPR depan (sejak start time)
+  _timeStarted: false,
+  _frontRunStartPulses: 0,
+  _frontStartPulses: 0,
+  _frontPulseClockMs: 0,
+  _t0PulseMs: 0,
+  _distM_fromFront: 0,
 
   // ===========================
   // ✅ SLIP (TOTAL/PEAK)
   // ===========================
-  _slipRevTotal: 0,   // total slip dalam satuan putaran (rev)
+  _slipRevTotal: 0,
   _slipStartFrontPulses: 0,
   _slipStartRearPulses: 0,
   _slipPeakPct: 0,
@@ -127,7 +118,7 @@ const __DYNO_DUAL = {
   // LIVE speed (front)
   _frontWinAccMs: 0,
   _frontWinStartPulses: 0,
-  _vFront: 0, // m/s filtered
+  _vFront: 0,
 
   // REAR for HP
   _rearLastPulses: 0,
@@ -145,9 +136,9 @@ const __DYNO_DUAL = {
   _hpOut: 0,
 
   // output UI
-  t: 0,            // ✅ detik dari PPR depan
-  distM: 0,        // ✅ jarak dyno dari PPR depan (sejak start time)
-  distPulseM: 0,   // jarak pulse total (optional)
+  t: 0,
+  distM: 0,
+  distPulseM: 0,
   speedKmh: 0,
   rpm: 0,
   tq: 0,
@@ -162,11 +153,50 @@ const __DYNO_DUAL = {
   seq: 0,
 
   statusText: "READY",
-  lastEvent: ""
+  lastEvent: "",
+
+  // ===========================
+  // ✅ CONNECT INDICATOR
+  // ===========================
+  connected: false,          // indikator koneksi saja
+  _connTimer: null
 };
 
 // ================================
-// PUBLIC API
+// ✅ CONNECT SIM START
+// ================================
+function __startConnSim(){
+  if (!CONN_SIM_ENABLE) return;
+  if (__DYNO_DUAL._connTimer) return;
+
+  // initial: OFF
+  __DYNO_DUAL.connected = false;
+
+  __DYNO_DUAL._connTimer = setInterval(() => {
+    __DYNO_DUAL.connected = !__DYNO_DUAL.connected;
+  }, Math.max(500, CONN_TOGGLE_MS));
+}
+__startConnSim();
+
+// ================================
+// PUBLIC API (CONNECT)
+// ================================
+window.DYNO_getConn_DUAL = async function(){
+  await delayDual(SIM_DELAY_DUAL);
+  return {
+    connected: !!__DYNO_DUAL.connected,
+    sim: true
+  };
+};
+
+// Untuk nanti ESP32 asli: bisa set manual
+window.DYNO_setConnected_DUAL = function(v){
+  __DYNO_DUAL.connected = !!v;
+  return { ok:true, connected: __DYNO_DUAL.connected };
+};
+
+// ================================
+// PUBLIC API (DYNO)
 // ================================
 window.DYNO_setConfig_DUAL = function(cfg = {}) {
   if (typeof cfg !== "object") return { ok: false };
@@ -236,7 +266,7 @@ window.DYNO_run_DUAL = async function() {
   __DYNO_DUAL._distM_fromFront = 0;
 
   __DYNO_DUAL._frontRunStartPulses = __DYNO_DUAL.totalFrontPulses;
-  __DYNO_DUAL._frontStartPulses = __DYNO_DUAL.totalFrontPulses; // akan digeser saat start time
+  __DYNO_DUAL._frontStartPulses = __DYNO_DUAL.totalFrontPulses;
   __DYNO_DUAL._frontPulseClockMs = performance.now();
   __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs;
 
@@ -252,7 +282,7 @@ window.DYNO_run_DUAL = async function() {
   __DYNO_DUAL.statusText = "RUNNING... start time setelah 1 putaran roda depan.";
   __DYNO_DUAL.lastEvent = "RUNNING";
 
-  __DYNO_pushRow(); // row awal (t=0, dist=0)
+  __DYNO_pushRow(); // row awal
   __DYNO_startLoop();
   return { ok: true };
 };
@@ -290,7 +320,6 @@ window.DYNO_getSnapshot_DUAL = async function() {
     pprRear: __DYNO_DUAL.pprRear,
     weightKg: __DYNO_DUAL.weightKg,
 
-    // ✅ waktu/jarak dyno-road dari PPR depan
     t: __DYNO_DUAL.t,
     distM: __DYNO_DUAL.distM,
 
@@ -301,7 +330,6 @@ window.DYNO_getSnapshot_DUAL = async function() {
     ign: __DYNO_DUAL.ign,
     afr: __DYNO_DUAL.afr,
 
-    // ✅ SLIP untuk overlay dyno-road (TOTAL/PEAK)
     slipPct: __DYNO_DUAL.slipPct,
     slipOn:  __DYNO_DUAL.slipOn,
 
@@ -367,7 +395,7 @@ function __DYNO_reset(clearLog) {
   __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs;
   __DYNO_DUAL._distM_fromFront = 0;
 
-  // ✅ SLIP reset
+  // slip reset
   __DYNO_DUAL._slipRevTotal = 0;
   __DYNO_DUAL._slipStartFrontPulses = 0;
   __DYNO_DUAL._slipStartRearPulses  = 0;
@@ -477,16 +505,15 @@ function __DYNO_step(dt) {
     __DYNO_DUAL.totalFrontPulses += addFront;
     __DYNO_DUAL._frontPulseFrac -= addFront;
 
-    // ✅ time source: pulse clock hanya maju kalau ada pulse
-    __DYNO_DUAL._frontPulseClockMs = nowMs; // last pulse time ~ akhir step
+    // time source: pulse clock hanya maju kalau ada pulse
+    __DYNO_DUAL._frontPulseClockMs = nowMs;
   }
 
   const rpmEst = clamp(((__DYNO_DUAL._vTrue / circ) * 60) * __DYNO_DUAL.ratio, __DYNO_DUAL.rpmStart, __DYNO_DUAL.rpmEnd);
 
   const pr = Math.max(1, __DYNO_DUAL.pprRear);
 
-  // ✅ SLIP SIM: hanya di awal start (jarak < SLIP_SIM_DIST_M dan rpm 2000..5000)
-  // slipFactor menambah putaran belakang sementara (simulasi ban selip)
+  // SLIP SIM hanya awal start
   let slipFactor = 0;
   if (SLIP_SIM_ENABLE && !__DYNO_DUAL._slipFrozen) {
     const frontRevRun = (__DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._slipStartFrontPulses) / pf;
@@ -498,9 +525,8 @@ function __DYNO_step(dt) {
   }
 
   __DYNO_DUAL._rearPulseFrac += (rev * pr) * (1.0 + slipFactor);
-  let addRear = 0;
   if (__DYNO_DUAL._rearPulseFrac >= 1) {
-    addRear = Math.floor(__DYNO_DUAL._rearPulseFrac);
+    const addRear = Math.floor(__DYNO_DUAL._rearPulseFrac);
     __DYNO_DUAL.totalRearPulses += addRear;
     __DYNO_DUAL._rearPulseFrac -= addRear;
   }
@@ -522,18 +548,13 @@ function __DYNO_step(dt) {
     __DYNO_DUAL._frontWinStartPulses = pulsesNow;
   }
 
-  // ===========================
-  // ✅ SLIP TOTAL (PEAK)
-  // ===========================
+  // SLIP TOTAL (peak)
   {
-    // ✅ SLIP TOTAL: beda total putaran belakang vs depan sejak klik RUN
-    // 1 putaran = 1% (jadi tidak dikali 100)
     const frontRevRun = (__DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._slipStartFrontPulses) / pf;
     const rearRevRun  = (__DYNO_DUAL.totalRearPulses  - __DYNO_DUAL._slipStartRearPulses)  / pr;
     const slipRevNow  = Math.max(0, rearRevRun - frontRevRun);
     const slipPctNow  = isFinite(slipRevNow) ? slipRevNow : 0;
 
-    // simpan puncak slip, lalu freeze setelah start lewat (biar tidak naik terus)
     if (!__DYNO_DUAL._slipFrozen) {
       __DYNO_DUAL._slipPeakPct = Math.max(__DYNO_DUAL._slipPeakPct, slipPctNow);
       const distRun = Math.max(0, frontRevRun) * circ;
@@ -546,9 +567,7 @@ function __DYNO_step(dt) {
     __DYNO_DUAL.slipOn  = (__DYNO_DUAL._slipPeakPct > 1e-6);
   }
 
-  // ===========================
-  // ✅ START TIME setelah 1 putaran roda depan
-  // ===========================
+  // START TIME setelah 1 putaran roda depan
   if (!__DYNO_DUAL._timeStarted) {
     const pulsesSinceRun = __DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._frontRunStartPulses;
     const revSinceRun = pulsesSinceRun / pf;
@@ -556,10 +575,7 @@ function __DYNO_step(dt) {
     if (revSinceRun >= 1.0) {
       __DYNO_DUAL._timeStarted = true;
 
-      // start reference tepat saat "pulse time" terakhir
       __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs || nowMs;
-
-      // reset distance reference dari pulse (start dist=0)
       __DYNO_DUAL._frontStartPulses = __DYNO_DUAL.totalFrontPulses;
 
       __DYNO_DUAL.t = 0;
@@ -569,7 +585,6 @@ function __DYNO_step(dt) {
       __DYNO_DUAL.statusText = "RUNNING... (time start setelah 1 putaran depan)";
       __DYNO_DUAL.lastEvent = "TIME_START";
     } else {
-      // sebelum start: t & dist tetap 0
       __DYNO_DUAL.t = 0;
       __DYNO_DUAL.distM = 0;
       __DYNO_DUAL._distM_fromFront = 0;
@@ -634,21 +649,17 @@ function __DYNO_step(dt) {
   const rpm = clamp(__DYNO_DUAL._rpmOut, __DYNO_DUAL.rpmStart, __DYNO_DUAL.rpmEnd);
   const tq = (hp * 7127) / Math.max(1, rpm);
 
-  // 8) IGN & AFR SIM (optional)
-  const ign = clamp(12 + (rpm / 20000) * 18, 0, 70); // ~12..30
+  // 8) IGN & AFR SIM
+  const ign = clamp(12 + (rpm / 20000) * 18, 0, 70);
   const afr = clamp(14.7 + (rpm / 20000) * 1.8 - (hp / TARGET_HP_PEAK) * 1.0, 10.0, 22.0);
 
-  // ===========================
-  // ✅ OUTPUT time/dist dari FRONT PPR (mulai setelah 1 putaran)
-  // ===========================
-  // jarak pulse total (optional)
+  // output time/dist dari FRONT PPR
   __DYNO_DUAL.distPulseM = (__DYNO_DUAL.totalFrontPulses / pf) * circ;
 
   if (__DYNO_DUAL._timeStarted) {
     const pulsesSinceStart = __DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._frontStartPulses;
     __DYNO_DUAL._distM_fromFront = (pulsesSinceStart / pf) * circ;
 
-    // time dari "pulse clock"
     const tPulse = ((__DYNO_DUAL._frontPulseClockMs || nowMs) - __DYNO_DUAL._t0PulseMs) / 1000;
     __DYNO_DUAL.t = Math.max(0, tPulse);
 
@@ -662,7 +673,7 @@ function __DYNO_step(dt) {
   __DYNO_DUAL.speedKmh = clamp(__DYNO_DUAL._vFront, 0, VMAX) * 3.6;
 
   __DYNO_DUAL.rpm = rpm;
-  __DYNO_DUAL.hp  = __DYNO_DUAL._timeStarted ? hp : 0;   // sebelum start time: 0
+  __DYNO_DUAL.hp  = __DYNO_DUAL._timeStarted ? hp : 0;
   __DYNO_DUAL.tq  = __DYNO_DUAL._timeStarted ? tq : 0;
   __DYNO_DUAL.ign = __DYNO_DUAL._timeStarted ? ign : 0;
   __DYNO_DUAL.afr = __DYNO_DUAL._timeStarted ? afr : 14.7;
@@ -670,16 +681,14 @@ function __DYNO_step(dt) {
   if (__DYNO_DUAL.hp > __DYNO_DUAL.maxHP) __DYNO_DUAL.maxHP = __DYNO_DUAL.hp;
   if (__DYNO_DUAL.tq > __DYNO_DUAL.maxTQ) __DYNO_DUAL.maxTQ = __DYNO_DUAL.tq;
 
-  // logging: push row hanya setelah time start (biar data clean)
+  // logging
   __DYNO_DUAL._logAccMs += dt * 1000;
   if (__DYNO_DUAL._logAccMs >= __DYNO_DUAL.logEveryMs) {
     __DYNO_DUAL._logAccMs = 0;
     __DYNO_pushRow();
   }
 
-  // ===========================
-  // ✅ AUTO STOP dari jarak FRONT PPR
-  // ===========================
+  // AUTO STOP dari jarak FRONT PPR
   if (__DYNO_DUAL._timeStarted && __DYNO_DUAL.distM >= __DYNO_DUAL.targetM) {
     __DYNO_DUAL.distM = __DYNO_DUAL.targetM;
     __DYNO_DUAL.running = false;
@@ -717,4 +726,4 @@ function delayDual(ms) {
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-})(); 
+})();
