@@ -232,8 +232,6 @@
 
     /* ======================================================
        SPLASH (HTML) + LOADING BAR (Android/PC)
-       - Aman portrait/landscape (bar tidak hilang saat rotate)
-       - Durasi: max 2 detik (di JS)
     ====================================================== */
     #splash{
       position:fixed;
@@ -323,9 +321,6 @@
         margin-top: 6px;
       }
     }
-
-    /* OPTIONAL: kunci gesture canvas dyno kalau butuh (tidak ganggu scroll page) */
-    /* #dynoCanvas{ touch-action:none; } */
   </style>
 </head>
 
@@ -390,23 +385,26 @@
                 <label>PPR BELAKANG</label>
                 <input id="d_pprRear" type="number" step="1" value="1"/>
               </div>
-              <!-- TICK DIHAPUS -->
-              <!-- RPM START/END DIHAPUS (dikunci di JS) -->
             </div>
 
-            <!-- ✅ BAGIAN TOMBOL: DITAMBAH KOTAK STATUS DI SAMPING ARM -->
             <div class="btns">
-              <button class="btn gray" onclick="DYNO_arm()">ARM</button>
+              <!-- ✅ ARM + KOTAK STATUS (selalu tampil) -->
+              <div style="display:flex;align-items:center;gap:10px;">
+                <button class="btn gray" onclick="DYNO_arm()">ARM</button>
 
-              <!-- ✅ KOTAK STATUS KONEKSI (SELALU TAMPIL, DEFAULT OFFLINE/ABU) -->
-              <span id="d_connBox"
-                    style="display:inline-flex;align-items:center;justify-content:center;
-                           height:36px;min-width:92px;padding:0 12px;margin-left:8px;
-                           border-radius:10px;border:1px solid rgba(255,255,255,.18);
-                           background:rgba(140,140,140,.25);color:rgba(255,255,255,.80);
-                           font-weight:900;letter-spacing:.06em;font-size:12px;user-select:none;">
-                OFFLINE
-              </span>
+                <!-- default OFFLINE -->
+                <div id="d_connBox"
+                     style="height:36px;min-width:120px;padding:0 14px;
+                            display:flex;align-items:center;justify-content:center;
+                            border-radius:2px;
+                            border:1px solid rgba(255,255,255,0.15);
+                            background:rgba(160,160,160,0.25);
+                            color:rgba(255,255,255,0.80);
+                            font-weight:900;font-size:12px;letter-spacing:.08em;
+                            user-select:none;">
+                  OFFLINE
+                </div>
+              </div>
 
               <button class="btn green" onclick="DYNO_run()">RUN</button>
               <button class="btn orange" onclick="DYNO_stop()">STOP</button>
@@ -533,8 +531,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const splash = document.getElementById('splash');
   let splashGone = false;
 
-  const SPLASH_MIN_MS = 9000;   // minimal tampil (biar tidak kedip)
-  const SPLASH_MAX_MS = 11000;  // maksimal tampil
+  const SPLASH_MIN_MS = 9000;
+  const SPLASH_MAX_MS = 11000;
   const splashStart  = Date.now();
 
   function hideSplash(){
@@ -609,6 +607,51 @@ document.addEventListener('DOMContentLoaded', () => {
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/dyno/service-worker.js").catch(()=>{});
   }
+
+  /* ======================================================
+     ✅ CONNECT STATUS BOX (OFFLINE/ONLINE)
+     - OFFLINE = abu
+     - ONLINE  = hijau
+     - sumber status dari esp-api-dual.js:
+       window.DYNO_getConn_DUAL() -> { connected: true/false, label?: "SIM"/"ESP32" }
+  ====================================================== */
+  const box = document.getElementById("d_connBox");
+
+  function setConnUI(connected, label){
+    if (!box) return;
+
+    if (connected){
+      const tag = label ? String(label).toUpperCase() : "ONLINE";
+      box.textContent = tag;
+      box.style.background = "rgba(46,204,113,0.28)";
+      box.style.borderColor = "rgba(46,204,113,0.45)";
+      box.style.color = "rgba(255,255,255,0.92)";
+    } else {
+      box.textContent = "OFFLINE";
+      box.style.background = "rgba(160,160,160,0.25)";
+      box.style.borderColor = "rgba(255,255,255,0.15)";
+      box.style.color = "rgba(255,255,255,0.80)";
+    }
+  }
+
+  // default
+  setConnUI(false);
+
+  // poll status ringan
+  setInterval(async () => {
+    try{
+      if (typeof window.DYNO_getConn_DUAL === "function"){
+        const s = await window.DYNO_getConn_DUAL();
+        setConnUI(!!(s && s.connected), (s && s.label) ? s.label : (s && s.connected ? "ONLINE" : ""));
+      } else {
+        // fallback: kalau API snapshot ada -> anggap SIM online
+        setConnUI(typeof window.DYNO_getSnapshot_DUAL === "function", "SIM");
+      }
+    }catch(e){
+      setConnUI(false);
+    }
+  }, 400);
+
 });
 </script>
 
