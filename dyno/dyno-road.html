@@ -394,29 +394,19 @@
               <!-- RPM START/END DIHAPUS (dikunci di JS) -->
             </div>
 
+            <!-- ✅ BAGIAN TOMBOL: DITAMBAH KOTAK STATUS DI SAMPING ARM -->
             <div class="btns">
               <button class="btn gray" onclick="DYNO_arm()">ARM</button>
 
-              <!-- ✅ KOTAK STATUS KONEKSI (SELALU ADA) -->
-              <div id="d_connBox"
-                   style="
-                     display:inline-flex;
-                     align-items:center;
-                     justify-content:center;
-                     height:36px;
-                     min-width:74px;
-                     padding:0 12px;
-                     margin-left:8px;
-                     border-radius:10px;
-                     border:1px solid rgba(255,255,255,.18);
-                     background:rgba(140,140,140,.25);
-                     color:rgba(255,255,255,.75);
-                     font-weight:900;
-                     letter-spacing:.06em;
-                     font-size:12px;
-                     user-select:none;
-                     white-space:nowrap;
-                   ">OFF</div>
+              <!-- ✅ KOTAK STATUS KONEKSI (SELALU TAMPIL, DEFAULT OFFLINE/ABU) -->
+              <span id="d_connBox"
+                    style="display:inline-flex;align-items:center;justify-content:center;
+                           height:36px;min-width:92px;padding:0 12px;margin-left:8px;
+                           border-radius:10px;border:1px solid rgba(255,255,255,.18);
+                           background:rgba(140,140,140,.25);color:rgba(255,255,255,.80);
+                           font-weight:900;letter-spacing:.06em;font-size:12px;user-select:none;">
+                OFFLINE
+              </span>
 
               <button class="btn green" onclick="DYNO_run()">RUN</button>
               <button class="btn orange" onclick="DYNO_stop()">STOP</button>
