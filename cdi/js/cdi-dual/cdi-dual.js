@@ -931,7 +931,6 @@ function redraw_DUAL() {
 
   const pts = (typeof rpmPoints_BASIC !== "undefined" ? rpmPoints_BASIC : []);
   const rMin = (typeof RPM_MIN !== "undefined" ? RPM_MIN : 500);
-  const rMax = (typeof RPM_MAX !== "undefined" ? RPM_MAX : 20000);
   const rStep = (typeof RPM_STEP !== "undefined" ? RPM_STEP : 250);
 
   ctx.textAlign = "center";
@@ -1023,11 +1022,8 @@ function enableDrag_DUAL() {
   const c = document.getElementById("curveCanvas");
   if (!c) return;
 
-  // penting: biar sentuh di canvas tidak dianggap scroll
   c.style.touchAction = "none";
-
-  // ==== anti dobel listener ====
-  if (c._dualPointerDragBound) return; // sudah pernah dipasang
+  if (c._dualPointerDragBound) return;
   c._dualPointerDragBound = true;
 
   let idx = null;
@@ -1035,11 +1031,8 @@ function enableDrag_DUAL() {
 
   function posToCanvas(ev) {
     const r = c.getBoundingClientRect();
-
-    // scale: ukuran CSS -> ukuran internal canvas
     const sx = c.width / r.width;
     const sy = c.height / r.height;
-
     const x = (ev.clientX - r.left) * sx;
     const y = (ev.clientY - r.top) * sy;
     return { x, y };
@@ -1047,7 +1040,6 @@ function enableDrag_DUAL() {
 
   function findPointIndex(mx, my) {
     const cap = DUAL.pickup ?? TIMING_MAX;
-
     const map = DUAL.maps[DUAL.activeMap];
     const curve = map.curve;
 
@@ -1065,7 +1057,6 @@ function enableDrag_DUAL() {
         (Math.min(curve[i], cap) / cap) *
           (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING);
 
-      // radius klik diperbesar biar enak di HP
       if (Math.hypot(mx - x, my - y) < 14) return i;
     }
     return null;
@@ -1082,7 +1073,6 @@ function enableDrag_DUAL() {
           (c.height - AXIS_BOTTOM - AXIS_TOP_PADDING));
 
     val = Math.max(TIMING_MIN, Math.min(cap, val));
-
     map.curve[i] = val;
 
     const inp = document.querySelector(`#rpmTable tr:nth-child(${i + 2}) input`);
@@ -1099,9 +1089,7 @@ function enableDrag_DUAL() {
     if (hit !== null) {
       idx = hit;
       dragging = true;
-
       try { c.setPointerCapture(ev.pointerId); } catch (e) {}
-
       ev.preventDefault();
       ev.stopPropagation();
       applyValueFromY(idx, p.y);
@@ -1113,27 +1101,21 @@ function enableDrag_DUAL() {
 
   function onMove(ev) {
     if (!dragging || idx === null) return;
-
     const p = posToCanvas(ev);
     applyValueFromY(idx, p.y);
-
     ev.preventDefault();
     ev.stopPropagation();
   }
 
   function onUp(ev) {
     if (!dragging) return;
-
     dragging = false;
     idx = null;
-
     try { c.releasePointerCapture(ev.pointerId); } catch (e) {}
-
     ev.preventDefault();
     ev.stopPropagation();
   }
 
-  // Pointer Events (jalan di HP + PC)
   c.addEventListener("pointerdown", onDown, { passive: false });
   c.addEventListener("pointermove", onMove, { passive: false });
   c.addEventListener("pointerup", onUp, { passive: false });
@@ -1267,7 +1249,6 @@ function redrawAFRDetail_DUAL() {
   const map = DUAL.maps[DUAL.activeMap];
   const maxLimiter = map.limiter || rMaxGlobal;
 
-  // ignition curve overlay (sync)
   ctx.strokeStyle = "#ffffff";
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -1382,23 +1363,19 @@ function startDualLive(){
   setLiveBtnState(true);
   setActionStatus_DUAL("LIVE ON", 600);
 
-  // polling realtime
   DUAL.liveTimer = setInterval(async () => {
     if (!DUAL.active || !DUAL.live) return;
 
     try {
-      // rpm
       if (typeof getLiveRPM_DUAL === "function") {
         const rpm = await getLiveRPM_DUAL();
         DUAL.liveRPM = Math.max(0, Math.floor(Number(rpm) || 0));
       }
 
-      // afr (optional)
       if (typeof getLiveAFR_DUAL === "function") {
         const afr = await getLiveAFR_DUAL(DUAL.liveRPM);
         if (afr && isFinite(afr) && afr > 0) {
           DUAL.liveAFR = Number(afr);
-          // record per 100rpm
           window.recordAFRSample100_DUAL(DUAL.liveRPM, DUAL.liveAFR);
         } else {
           DUAL.liveAFR = null;
@@ -1423,7 +1400,6 @@ function stopDualLive(){
   setLiveBtnState(false);
   setActionStatus_DUAL("LIVE OFF", 600);
 
-  // tidak reset history, hanya rpm/afr live
   DUAL.liveRPM = 0;
   DUAL.liveAFR = null;
 
@@ -1433,7 +1409,46 @@ function stopDualLive(){
 
 /* =========================================================
    READ / SEND (FIX SAFETY)
+   NOTE: DI BAWAH INI HANYA REVISI BAGIAN STATUS READ.
+         STATUS LAIN (KIRIM/LIVE/STATUS WATCHER) TIDAK DIUBAH.
 ========================================================= */
+
+/* ====== [ADDED] helper khusus status READ: 2 detik, sukses hijau, gagal merah ====== */
+function setReadStatusStyled_DUAL(text, bg, timeoutMs = 2000) {
+  const el = document.getElementById("sendStatus");
+  if (!el) return;
+
+  el.textContent = text || "";
+
+  // styling khusus READ (tidak sentuh fungsi status lain)
+  el.style.display = text ? "inline-flex" : "";
+  el.style.alignItems = text ? "center" : "";
+  el.style.justifyContent = text ? "center" : "";
+  el.style.padding = text ? "4px 10px" : "";
+  el.style.borderRadius = text ? "2px" : "";
+  el.style.fontWeight = text ? "800" : "";
+  el.style.fontSize = text ? "11px" : "";
+  el.style.color = text ? "#fff" : "";
+  el.style.background = text ? (bg || "#555") : "";
+
+  if (timeoutMs && timeoutMs > 0) {
+    setTimeout(() => {
+      const e2 = document.getElementById("sendStatus");
+      if (!e2) return;
+      e2.textContent = "";
+      e2.style.background = "";
+      e2.style.padding = "";
+      e2.style.borderRadius = "";
+      e2.style.fontWeight = "";
+      e2.style.fontSize = "";
+      e2.style.color = "";
+      e2.style.display = "";
+      e2.style.alignItems = "";
+      e2.style.justifyContent = "";
+    }, timeoutMs);
+  }
+}
+
 window.read_DUAL = async function () {
   if (!DUAL || !DUAL.active) return;
 
@@ -1441,10 +1456,11 @@ window.read_DUAL = async function () {
   const blocked = await shouldBlockReadSend_DUAL("READ");
   if (blocked) return;
 
-  const statusEl = document.getElementById("sendStatus");
   const btn = document.getElementById("readBtn");
   if (btn) btn.disabled = true;
-  if (statusEl) statusEl.textContent = "READ...";
+
+  // ====== [REVISI] tampilan READ... (pakai style read tapi netral) ======
+  setReadStatusStyled_DUAL("READ...", "#666", 0);
 
   try {
     if (typeof getMapFromESP_DUAL !== "function") throw new Error("NO_API");
@@ -1480,12 +1496,15 @@ window.read_DUAL = async function () {
     redraw_DUAL();
     redrawAFRDetail_DUAL();
 
-    if (statusEl) statusEl.textContent = "READ OK";
-    setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 800);
+    // ====== [REVISI] READ sukses: hijau, tampil 2 detik ======
+    setReadStatusStyled_DUAL("READ SUKSES", "#2ecc71", 2000);
+
   } catch (e) {
     console.warn("[READ_DUAL FAIL]", e && e.message ? e.message : e);
-    if (statusEl) statusEl.textContent = "READ FAIL";
-    setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 1200);
+
+    // ====== [REVISI] READ gagal: merah, tampil 2 detik ======
+    setReadStatusStyled_DUAL("READ GAGAL", "#e74c3c", 2000);
+
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -1530,10 +1549,6 @@ window.send_DUAL = async function () {
 
   } catch (e) {
     console.warn("[SEND_DUAL FAIL]", e && e.message ? e.message : e);
-
-    // kalau gagal pun, tetap pastikan "mengirim" tidak kedip (min 2 detik)
-    // (kalau status mengirim belum sempat tampil lama)
-    // NOTE: aman walau sudah lewat 2 detik
     setSendStatusStyled_DUAL("GAGAL KIRIM", "#e74c3c", 1800);
   } finally {
     if (btn) btn.disabled = false;
