@@ -1,4 +1,4 @@
-console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI SETELAH 1 PUTARAN)");
+console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP32 SETELAH 1 PUTARAN)");
 
 (function(){
   const UI_POLL_MS     = 16;
@@ -16,8 +16,8 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
   const HP_COLOR   = "rgb(52,152,219)";
 
   // slip threshold (overlay only)
-  const SLIP_ON_PCT = 5;     // slip ON jika > 5%
-  const SLIP_OVER_PCT = 500; // sama seperti sebelumnya: OVER
+  const SLIP_ON_PCT   = 5;     // slip ON jika > 5%
+  const SLIP_OVER_PCT = 500;   // OVER
 
   const DYNO = {
     armed:false,
@@ -32,20 +32,19 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
     rpmStart: FIXED_RPM_START,
     rpmEnd:   FIXED_RPM_END,
 
-    // live computed
-    t0:0,      // not used (legacy)
-    t:0,
-    distM:0,
-    speedKmh:0,
+    // live dari FIRMWARE
+    t:0,            // detik (float)
+    distM:0,        // meter (float)
+    speedKmh:0,     // km/h (float)
     rpm:0,
 
-    // optional from snapshot (kalau ada), fallback 0
+    // optional dari snapshot (kalau firmware kirim), default 0
     tq:0,
     hp:0,
     ign:0,
     afr:14.7,
 
-    // SLIP overlay only
+    // SLIP overlay only (boleh dihitung di firmware atau web; di sini pakai snapshot jika ada)
     slipPct:0,
     slipOn:false,
 
@@ -53,7 +52,6 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
     maxTQ:0,
 
     rows:[],
-    lastSeq:0,   // legacy (tidak dipakai untuk RAW)
     timer:null,
 
     statusBase:"READY",
@@ -63,21 +61,12 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
     // canvas
     c:null, ctx:null, W:0,H:0,
 
-    // ===== RAW SNAPSHOT CACHE =====
+    // cache snapshot
     lastSnap:null,
 
-    // ===== START GATE (PPR FRONT) =====
-    baseFront:0,       // front_total saat RUN ditekan
-    baseRear:0,        // rear_total  saat RUN ditekan
-    gatePulses:1,      // = pprFront (1 putaran)
-    waitGate:false,    // RUN ditekan tapi belum mulai timer
-    startTsMs:0,       // ts_ms ketika gate terpenuhi (estimasi)
-    distBaseFront:0,   // front_total saat dist=0 (setelah gate)
-
-    // ===== DELTA untuk speed =====
-    prevTsMs:0,
-    prevFront:0,
-    prevRear:0
+    // gate state dari firmware
+    waitGate:false,
+    gatePulses:1
   };
 
   // ==========================
@@ -116,7 +105,7 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
     ensureStatusProgressEl();
     setStatus("ARMED: siap RUN. Target = " + DYNO.targetM + " m");
 
-    // set config + arm ke ESP (opsional)
+    // Kirim config ke ESP32 (wajib agar PPR sesuai input web)
     if (typeof window.DYNO_setConfig_DUAL === "function") {
       try{
         await window.DYNO_setConfig_DUAL({
@@ -131,6 +120,7 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
       }catch(e){}
     }
 
+    // Arm di ESP32 (opsional, tapi disarankan)
     if (typeof window.DYNO_arm_DUAL === "function") {
       try{
         await window.DYNO_arm_DUAL({
@@ -145,29 +135,8 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
       }catch(e){}
     }
 
-    // ambil 1 snapshot buat baseline (kalau ada)
+    // ambil snapshot awal
     await pollFromESP(true);
-
-    // baseline raw
-    if (DYNO.lastSnap && isFinite(DYNO.lastSnap.front_total)) {
-      DYNO.baseFront = DYNO.lastSnap.front_total|0;
-      DYNO.baseRear  = (DYNO.lastSnap.rear_total|0) || 0;
-
-      DYNO.prevFront = DYNO.baseFront;
-      DYNO.prevRear  = DYNO.baseRear;
-      DYNO.prevTsMs  = (DYNO.lastSnap.ts_ms|0) || 0;
-    } else {
-      DYNO.baseFront = 0;
-      DYNO.baseRear  = 0;
-      DYNO.prevFront = 0;
-      DYNO.prevRear  = 0;
-      DYNO.prevTsMs  = 0;
-    }
-
-    DYNO.gatePulses = Math.max(1, DYNO.pprFront|0);
-    DYNO.waitGate = false;
-    DYNO.startTsMs = 0;
-    DYNO.distBaseFront = 0;
 
     DYNO_draw();
   };
@@ -183,37 +152,13 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
 
     DYNO.running = true;
 
-    // ===== START GATE =====
-    // Timer TIDAK mulai sampai front_total mencapai pprFront pulsa (1 putaran)
-    DYNO.gatePulses = Math.max(1, DYNO.pprFront|0);
-    DYNO.waitGate = true;
-    DYNO.startTsMs = 0;
+    // reset data run
+    DYNO.rows = [];
+    const tb = document.getElementById("d_tbody");
+    if (tb) tb.innerHTML = "";
+    setText("d_logInfo", "0 rows");
 
-    // ambil snapshot dulu untuk baseline (kalau ada)
-    await pollFromESP(true);
-
-    if (DYNO.lastSnap && isFinite(DYNO.lastSnap.front_total)) {
-      DYNO.baseFront = DYNO.lastSnap.front_total|0;
-      DYNO.baseRear  = (DYNO.lastSnap.rear_total|0) || 0;
-
-      DYNO.prevFront = DYNO.baseFront;
-      DYNO.prevRear  = DYNO.baseRear;
-      DYNO.prevTsMs  = (DYNO.lastSnap.ts_ms|0) || 0;
-    } else {
-      DYNO.baseFront = 0;
-      DYNO.baseRear  = 0;
-      DYNO.prevFront = 0;
-      DYNO.prevRear  = 0;
-      DYNO.prevTsMs  = 0;
-    }
-
-    updateState("RUN (WAIT 1 REV)");
-    ensureStatusProgressEl();
-    setStatus("RUN: tunggu 1 putaran roda depan (" + DYNO.gatePulses + " pulsa)...");
-
-    startStatusAnim();
-
-    // push config + run ke ESP (opsional)
+    // Kirim config lagi (biar 100% sesuai input terakhir)
     if (typeof window.DYNO_setConfig_DUAL === "function") {
       try{
         await window.DYNO_setConfig_DUAL({
@@ -227,10 +172,18 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
         });
       }catch(e){}
     }
+
+    // RUN di ESP32 (wajib agar TIMER START dari firmware setelah 1 putaran)
     if (typeof window.DYNO_run_DUAL === "function") {
       try{ await window.DYNO_run_DUAL(); }catch(e){}
     }
 
+    updateState("RUN");
+    ensureStatusProgressEl();
+    setStatus("RUN: menunggu START dari firmware (1 putaran roda depan)...");
+    startStatusAnim();
+
+    // poll rutin
     if (DYNO.timer) clearInterval(DYNO.timer);
     DYNO.timer = setInterval(() => {
       pollFromESP(false);
@@ -266,7 +219,6 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
       return;
     }
 
-    // slip tidak masuk CSV (overlay only)
     const head = ["t_s","rpm","tq_Nm","hp","ign_deg","afr","dist_m","speed_kmh"];
     const lines = [head.join(",")];
 
@@ -295,7 +247,7 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
   };
 
   // ==========================
-  // POLL DATA (RAW)
+  // POLL DATA (FIRMWARE-SOURCE OF TRUTH)
   // ==========================
   async function pollFromESP(forceOnce){
     if (DYNO.polling && !forceOnce) return;
@@ -308,108 +260,59 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
       if (!snap) return;
       DYNO.lastSnap = snap;
 
-      // raw fields
-      const tsMs = (snap.ts_ms|0) || (Date.now()|0);
-      const frontTotal = (snap.front_total|0) || 0;
-      const rearTotal  = (snap.rear_total|0)  || 0;
+      // ===== AMBIL DARI FIRMWARE =====
+      // waktu (detik) AKURAT: dihitung firmware mulai setelah 1 putaran (pprFront pulses)
+      if (isFinite(Number(snap.t)))        DYNO.t        = Number(snap.t);
+      if (isFinite(Number(snap.distM)))    DYNO.distM    = Number(snap.distM);
+      if (isFinite(Number(snap.speedKmh))) DYNO.speedKmh = Number(snap.speedKmh);
 
-      // rpm (raw)
-      DYNO.rpm = Number(snap.rpm || 0) || 0;
+      // rpm raw (boleh 0 jika tidak ada pulse)
+      DYNO.rpm = isFinite(Number(snap.rpm)) ? Number(snap.rpm) : 0;
 
-      // optional fields (kalau firmware nanti nambah)
-      DYNO.tq  = Number(snap.tq  || snap.torque  || 0) || 0;
-      DYNO.hp  = Number(snap.hp  || snap.power   || 0) || 0;
-      DYNO.ign = Number(snap.ign || snap.ignition|| 0) || 0;
+      // status gate dari firmware
+      DYNO.waitGate   = !!(snap.gate_wait ?? snap.waitGate ?? false);
+      DYNO.gatePulses = Math.max(1, Number(snap.gate_pulses ?? snap.gatePulses ?? DYNO.pprFront) || 1);
+
+      // optional
+      DYNO.tq  = isFinite(Number(snap.tq))  ? Number(snap.tq)  : (DYNO.tq||0);
+      DYNO.hp  = isFinite(Number(snap.hp))  ? Number(snap.hp)  : (DYNO.hp||0);
+      DYNO.ign = isFinite(Number(snap.ign)) ? Number(snap.ign) : (DYNO.ign||0);
       DYNO.afr = isFinite(Number(snap.afr)) ? Number(snap.afr) : DYNO.afr;
 
-      // init prev jika kosong
-      if (!DYNO.prevTsMs) {
-        DYNO.prevTsMs  = tsMs;
-        DYNO.prevFront = frontTotal;
-        DYNO.prevRear  = rearTotal;
+      // slip (boleh dari firmware, kalau tidak ada fallback hitung dari raw totals)
+      if (isFinite(Number(snap.slipPct))) {
+        DYNO.slipPct = Number(snap.slipPct);
+      } else if (isFinite(Number(snap.front_total)) && isFinite(Number(snap.rear_total))) {
+        // fallback hitung slip pakai total (overlay only)
+        const ft = Number(snap.front_total)||0;
+        const rt = Number(snap.rear_total)||0;
+        const frontDistTotal = (ft / Math.max(1, DYNO.pprFront)) * DYNO.circM;
+        const rearDistTotal  = (rt / Math.max(1, DYNO.pprRear )) * DYNO.circM;
+        if (frontDistTotal > 1e-6) DYNO.slipPct = ((rearDistTotal - frontDistTotal) / frontDistTotal) * 100;
+        else DYNO.slipPct = 0;
       }
 
-      // ======================
-      // SLIP (overlay only)
-      // ======================
-      // dist dari total pulses (sementara) untuk estimasi slip:
-      const frontDistTotal = (frontTotal / Math.max(1, DYNO.pprFront)) * DYNO.circM;
-      const rearDistTotal  = (rearTotal  / Math.max(1, DYNO.pprRear )) * DYNO.circM;
+      DYNO.slipOn = (isFinite(DYNO.slipPct) ? (DYNO.slipPct > SLIP_ON_PCT) : false);
 
-      if (frontDistTotal > 0.0001) {
-        const slip = ((rearDistTotal - frontDistTotal) / frontDistTotal) * 100;
-        DYNO.slipPct = isFinite(slip) ? slip : 0;
+      // max tracking
+      if (isFinite(DYNO.hp)) DYNO.maxHP = Math.max(DYNO.maxHP || 0, DYNO.hp || 0);
+      if (isFinite(DYNO.tq)) DYNO.maxTQ = Math.max(DYNO.maxTQ || 0, DYNO.tq || 0);
+
+      // status text
+      if (snap.statusText) {
+        DYNO.statusBase = String(snap.statusText);
+        renderStatus();
       } else {
-        DYNO.slipPct = 0;
-      }
-      DYNO.slipOn = (DYNO.slipPct > SLIP_ON_PCT);
-
-      // ======================
-      // START GATE (1 putaran roda depan)
-      // ======================
-      if (DYNO.running && DYNO.waitGate) {
-        const prevDelta = (DYNO.prevFront - DYNO.baseFront);
-        const curDelta  = (frontTotal - DYNO.baseFront);
-
-        if (curDelta >= DYNO.gatePulses) {
-          // estimasi waktu crossing di antara prev->now
-          const step = Math.max(1, curDelta - prevDelta);
-          const need = DYNO.gatePulses - prevDelta;
-          const frac = Math.max(0, Math.min(1, need / step));
-
-          const crossTs = DYNO.prevTsMs + frac * (tsMs - DYNO.prevTsMs);
-
-          DYNO.startTsMs = crossTs;
-          DYNO.waitGate  = false;
-
-          // dist = 0 dimulai setelah 1 putaran terpenuhi
-          DYNO.distBaseFront = DYNO.baseFront + DYNO.gatePulses;
-
-          // reset live
-          DYNO.t = 0;
-          DYNO.distM = 0;
-          DYNO.speedKmh = 0;
-
-          updateState("RUNNING");
-          setStatus("RUNNING... (timer mulai setelah 1 putaran roda depan)");
-
-          // bersihin rows sebelum start benar-benar berjalan
-          // (biar tidak ada row “nol” sebelum gate)
-          DYNO.rows = [];
-          const tb = document.getElementById("d_tbody");
-          if (tb) tb.innerHTML = "";
-          setText("d_logInfo", "0 rows");
-        } else {
-          // belum cukup pulsa: tahan time/dist/speed = 0
-          DYNO.t = 0;
-          DYNO.distM = 0;
-          DYNO.speedKmh = 0;
+        // minimal status
+        if (DYNO.running) {
+          if (DYNO.waitGate) setStatus("RUN: tunggu 1 putaran roda depan (" + DYNO.gatePulses + " pulsa)...");
+          else setStatus("RUNNING... (timer dari firmware)");
         }
       }
 
-      // ======================
-      // HITUNG TIME / DIST / SPEED SETELAH GATE
-      // ======================
-      if (DYNO.running && !DYNO.waitGate && DYNO.startTsMs) {
-        // time (s)
-        DYNO.t = Math.max(0, (tsMs - DYNO.startTsMs) / 1000);
-
-        // distance (m) mulai setelah gate
-        const pulsesAfterGate = Math.max(0, frontTotal - DYNO.distBaseFront);
-        DYNO.distM = (pulsesAfterGate / Math.max(1, DYNO.pprFront)) * DYNO.circM;
-
-        // speed dari delta pulses / delta time
-        const dt = Math.max(1, tsMs - DYNO.prevTsMs) / 1000;
-        const dP = Math.max(0, frontTotal - DYNO.prevFront);
-        const dDist = (dP / Math.max(1, DYNO.pprFront)) * DYNO.circM;
-        const ms = dDist / dt;
-        DYNO.speedKmh = ms * 3.6;
-
-        // max tracking (kalau hp/tq memang ada)
-        if (isFinite(DYNO.hp)) DYNO.maxHP = Math.max(DYNO.maxHP || 0, DYNO.hp || 0);
-        if (isFinite(DYNO.tq)) DYNO.maxTQ = Math.max(DYNO.maxTQ || 0, DYNO.tq || 0);
-
-        // log row (web-generated)
+      // ===== LOG ROW (WEB GENERATED, tapi waktu/dist dari firmware) =====
+      // hanya saat sudah lewat gate (t>0 atau gate_wait=false)
+      if (DYNO.running && !DYNO.waitGate) {
         const row = {
           t: DYNO.t,
           rpm: DYNO.rpm,
@@ -420,10 +323,16 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
           dist: DYNO.distM,
           spd: DYNO.speedKmh
         };
-        DYNO.rows.push(row);
-        appendRowFast(row);
 
-        // auto stop saat target tercapai
+        // cegah spam: hanya tambah jika dist naik atau t naik
+        const last = DYNO.rows.length ? DYNO.rows[DYNO.rows.length - 1] : null;
+        const okAdd = !last || (row.dist >= (last.dist + 0.001)) || (row.t >= (last.t + 0.010));
+        if (okAdd) {
+          DYNO.rows.push(row);
+          appendRowFast(row);
+        }
+
+        // auto stop dari web (tetap) saat target tercapai
         if (DYNO.distM >= Math.max(1, DYNO.targetM)) {
           setStatus("AUTO STOP: target tercapai (" + DYNO.targetM + " m)");
           window.DYNO_stop();
@@ -434,10 +343,11 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
       updateStatusProgress();
       DYNO_draw();
 
-      // update prev
-      DYNO.prevTsMs  = tsMs;
-      DYNO.prevFront = frontTotal;
-      DYNO.prevRear  = rearTotal;
+      // auto stop jika firmware bilang stop
+      if (snap.running === false && DYNO.running) {
+        setStatus(snap.statusText || "STOP dari firmware.");
+        window.DYNO_stop();
+      }
 
     } catch (e) {
       // ignore
@@ -627,7 +537,7 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
       ctx.fillText(String(Math.round(m)), x, PAD_T + plotH + 8);
     }
 
-    // info text when waiting
+    // info text when waiting gate
     if (DYNO.running && DYNO.waitGate){
       drawInfoText(ctx, W, H, "WAIT: " + DYNO.gatePulses + " pulsa (1 putaran) ...");
       drawOverlayInsideGraph(ctx, PAD_L, PAD_T, plotW, plotH);
@@ -864,7 +774,6 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
     const ignText = "IGN  : " + (DYNO.ign || 0).toFixed(1) + "°";
     const afrText = "AFR  : " + (isFinite(DYNO.afr) ? DYNO.afr.toFixed(2) : "14.70");
 
-    // slip text
     let slipText = "SLIP : --";
     if (isFinite(DYNO.slipPct)) {
       if (DYNO.slipPct > SLIP_OVER_PCT) slipText = "SLIP : OVER";
@@ -951,8 +860,8 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
   }
 
   function readInputs(){
-    DYNO.targetM = clamp(Math.round(num("d_targetM", 200)), 10, 5000);
-    DYNO.circM = num("d_circM", 1.85);
+    DYNO.targetM  = clamp(Math.round(num("d_targetM", 200)), 10, 5000);
+    DYNO.circM    = num("d_circM", 1.85);
     DYNO.weightKg = clamp(Math.round(num("d_weightKg", 120)), 30, 500);
 
     DYNO.pprFront = Math.max(1, Math.round(num("d_pprFront", 1)));
@@ -971,7 +880,6 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
   }
 
   function DYNO_reset(clearTable){
-    DYNO.t0 = 0;
     DYNO.t = 0;
     DYNO.distM = 0;
     DYNO.speedKmh = 0;
@@ -991,19 +899,8 @@ console.log("✅ dyno-road.js dimuat (RAW PPR FRONT GATE START — TIMER MULAI S
     DYNO.maxHP = 0;
     DYNO.maxTQ = 0;
 
-    DYNO.lastSeq = 0;
-
-    // raw gate reset
-    DYNO.baseFront = 0;
-    DYNO.baseRear  = 0;
-    DYNO.gatePulses = Math.max(1, DYNO.pprFront|0);
     DYNO.waitGate = false;
-    DYNO.startTsMs = 0;
-    DYNO.distBaseFront = 0;
-
-    DYNO.prevTsMs = 0;
-    DYNO.prevFront = 0;
-    DYNO.prevRear = 0;
+    DYNO.gatePulses = Math.max(1, DYNO.pprFront|0);
 
     if (clearTable){
       DYNO.rows = [];
