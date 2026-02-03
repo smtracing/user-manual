@@ -1,729 +1,737 @@
 /* =========================================================
-   esp-api-dual.js — DYNO-ROAD ONLY (SIM) — TIME FROM FRONT PPR
-   + CONNECT STATUS SIM (TERHUBUNG / TIDAK)
-   - DYNO_getConn_DUAL() dipakai dyno-road.js untuk kotak status
-   - Simulasi: status koneksi ON/OFF bergantian
+   esp-api-dual.js — DYNO-ROAD ONLY (REAL ESP32 AP + FALLBACK SAFE)
+   - CONNECT ke ESP32 asli via HTTP JSON:
+       GET http://192.168.4.1/snapshot
+       -> { ts_ms, front_total, rear_total, rpm, rpm_valid, espReady, circ_m, ppr_f, ppr_r }
+
+   - Data yang dipakai UI:
+       front_total, rear_total, rpm (jika valid)
+       AFR: belum ada -> dibekukan 14.7
+
+   - TIME(s) & DIST(m) tetap gaya kamu:
+       START time setelah 1 putaran roda depan sejak RUN
+       STOP saat dist (dari front_total) mencapai targetM
+
+   - SLIP: peak (puncak), freeze setelah start lewat
+
+   - KONEK WIFI "KAYAK CDI":
+       Host AP dikunci: http://192.168.4.1
+       fetchJSON helper (timeout + json safe)
+       Event status koneksi: window "DYNO_CONN" (optional, tidak ganggu file lain)
+
+   Penting:
+   - File lain tidak disentuh.
+   - Interface fungsi yang sudah dipakai dyno-road.js tetap ada:
+       DYNO_setConfig_DUAL, DYNO_arm_DUAL, DYNO_run_DUAL, DYNO_stop_DUAL
+       DYNO_getSnapshot_DUAL, DYNO_getRowsSince_DUAL
 ========================================================= */
 
-console.log("%c[ESP-API-DUAL] DYNO-ROAD SIM (TIME FROM FRONT PPR)", "color:#4cff8f");
+console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AFR HOLD", "color:#4cff8f");
 
 (function () {
 
-const SIM_DELAY_DUAL = 0;
+  // =========================
+  // ESP32 ENDPOINT (AP)
+  // =========================
+  const ESP_BASE_URL   = "http://192.168.4.1";
+  const ESP_SNAPSHOT   = "/snapshot";
+  const ESP_POLL_MS    = 80;     // 50..120ms aman (UI tetap halus)
+  const ESP_TIMEOUT_MS = 350;    // timeout fetch
 
-const WATT_PER_HP = 745.699872;
+  const WATT_PER_HP = 745.699872;
 
-// target simulasi
-const TARGET_HP_PEAK = 14.0;
-const TARGET_SPEED_KMH = 150.0;
-const VMAX = TARGET_SPEED_KMH / 3.6; // m/s
+  // smoothing knobs (real)
+  const FRONT_SMOOTH_ALPHA = 0.35;   // speed front smoothing
+  const REAR_SMOOTH_ALPHA  = 0.35;   // speed rear smoothing
+  const HP_SMOOTH_HZ       = 4.0;    // hp smoothing (low pass)
+  const ACC_SMOOTH_ALPHA   = 0.25;   // accel smoothing
 
-// ✅ SIM rear dibuat halus agar grafik HP/TQ tidak zigzag
-const SIM_IDEAL_REAR = true;
+  // =========================
+  // SLIP (peak + freeze)
+  // =========================
+  const SLIP_FREEZE_DIST_M = 10;   // freeze slip peak setelah 10m
+  const SLIP_FREEZE_RPM    = 5000; // atau rpm lewat batas ini
 
-// smoothing knobs
-const REAR_SLEW_HZ_SIM = 7.0;   // 5..10
-const HP_SMOOTH_HZ     = 4.0;
+  /* =========================================================
+     FETCH HELPER (timeout + json safe) — gaya CDI
+  ========================================================= */
+  async function fetchJSON(url, opt = {}, timeoutMs = ESP_TIMEOUT_MS) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
 
-// speed LIVE dari PPR depan
-const FRONT_WIN_MS = 100;
+    try {
+      const res = await fetch(url, {
+        cache: "no-store",
+        ...opt,
+        signal: ctrl.signal
+      });
 
-// =========================
-// ✅ SLIP SIM (awal start)
-// =========================
-const SLIP_SIM_ENABLE = true;
-const SLIP_SIM_RPM_MIN = 2000;
-const SLIP_SIM_RPM_MAX = 5000;
-const SLIP_SIM_DIST_M  = 1.0;
-const SLIP_SIM_EXTRA_MAX = 1.5;
+      if (!res.ok) throw new Error("HTTP_" + res.status);
 
-// =========================
-// ✅ CONNECT STATUS SIM
-// =========================
-// ON/OFF bergantian. Ini hanya indikator, tidak mengubah dyno sim.
-const CONN_SIM_ENABLE = true;
-const CONN_TOGGLE_MS  = 3500;     // ganti status tiap 3.5 detik
+      const txt = await res.text();
+      try { return JSON.parse(txt); }
+      catch { return { _raw: txt }; }
+    } finally {
+      clearTimeout(t);
+    }
+  }
 
-const __DYNO_DUAL = {
-  armed: false,
-  running: false,
-
-  // config dari dyno-road
-  tickMs: 2,
-  targetM: 200,
-  circM: 1.85,
-
-  pprFront: 1,
-  pprRear:  1,
-  weightKg: 120,
-
-  // rasio wheel rpm -> engine rpm (sim)
-  ratio: 9.0,
-
-  // UI range
-  rpmStart: 2000,
-  rpmEnd:   20000,
-
-  // tuning akselerasi sim
-  thrustN_base: 750,
-
-  // batas config
-  minTargetM: 10,
-  maxTargetM: 2001,
-  minWeightKg: 30,
-  maxWeightKg: 400,
-
-  // logging
-  logEveryMs: 10,
-  _logAccMs: 0,
-
-  // runtime loop
-  t0: 0,
-  lastNow: 0,
-  _accMs: 0,
-  _timer: null,
-
-  // sensor pulse totals (SIM / nanti real)
-  totalFrontPulses: 0,
-  totalRearPulses:  0,
-  _frontPulseFrac: 0,
-  _rearPulseFrac:  0,
-
-  // motion true internal (kontinu)
-  _vTrue: 0,
-  _distTrue: 0,
-
-  // ===========================
-  // ✅ TIME FROM FRONT PPR
-  // ===========================
-  _timeStarted: false,
-  _frontRunStartPulses: 0,
-  _frontStartPulses: 0,
-  _frontPulseClockMs: 0,
-  _t0PulseMs: 0,
-  _distM_fromFront: 0,
-
-  // ===========================
-  // ✅ SLIP (TOTAL/PEAK)
-  // ===========================
-  _slipRevTotal: 0,
-  _slipStartFrontPulses: 0,
-  _slipStartRearPulses: 0,
-  _slipPeakPct: 0,
-  _slipFrozen: false,
-
-  slipPct: 0,
-  slipOn: false,
-
-  // LIVE speed (front)
-  _frontWinAccMs: 0,
-  _frontWinStartPulses: 0,
-  _vFront: 0,
-
-  // REAR for HP
-  _rearLastPulses: 0,
-  _rearLastPulseMs: 0,
-  _vRearTarget: 0,
-  _vRear: 0,
-  _vRearPrev: 0,
-  _aRear: 0,
-
-  // RPM
-  _rpmTrue: 0,
-  _rpmOut: 0,
-
-  // HP smoothing
-  _hpOut: 0,
-
-  // output UI
-  t: 0,
-  distM: 0,
-  distPulseM: 0,
-  speedKmh: 0,
-  rpm: 0,
-  tq: 0,
-  hp: 0,
-  ign: 0,
-  afr: 14.7,
-
-  maxHP: 0,
-  maxTQ: 0,
-
-  rows: [],
-  seq: 0,
-
-  statusText: "READY",
-  lastEvent: "",
-
-  // ===========================
-  // ✅ CONNECT INDICATOR
-  // ===========================
-  connected: false,          // indikator koneksi saja
-  _connTimer: null
-};
-
-// ================================
-// ✅ CONNECT SIM START
-// ================================
-function __startConnSim(){
-  if (!CONN_SIM_ENABLE) return;
-  if (__DYNO_DUAL._connTimer) return;
-
-  // initial: OFF
-  __DYNO_DUAL.connected = false;
-
-  __DYNO_DUAL._connTimer = setInterval(() => {
-    __DYNO_DUAL.connected = !__DYNO_DUAL.connected;
-  }, Math.max(500, CONN_TOGGLE_MS));
-}
-__startConnSim();
-
-// ================================
-// PUBLIC API (CONNECT)
-// ================================
-window.DYNO_getConn_DUAL = async function(){
-  await delayDual(SIM_DELAY_DUAL);
-  return {
-    connected: !!__DYNO_DUAL.connected,
-    sim: true
+  // Optional helper untuk “cek online” cepat (tanpa ubah file lain)
+  window.getESPStatus_DUAL = async function () {
+    try {
+      const j = await fetchJSON(ESP_BASE_URL + ESP_SNAPSHOT, {}, 250);
+      const ok = !!(j && (j.espReady === true || j.espReady === 1 || j.espReady === "1" || typeof j.front_total !== "undefined"));
+      return { online: ok, host: ESP_BASE_URL };
+    } catch {
+      return { online: false, host: ESP_BASE_URL };
+    }
   };
-};
 
-// Untuk nanti ESP32 asli: bisa set manual
-window.DYNO_setConnected_DUAL = function(v){
-  __DYNO_DUAL.connected = !!v;
-  return { ok:true, connected: __DYNO_DUAL.connected };
-};
+  const __DYNO_DUAL = {
+    armed: false,
+    running: false,
 
-// ================================
-// PUBLIC API (DYNO)
-// ================================
-window.DYNO_setConfig_DUAL = function(cfg = {}) {
-  if (typeof cfg !== "object") return { ok: false };
+    // config dari dyno-road
+    tickMs: 2,
+    targetM: 200,
+    circM: 1.85,
 
-  if (isFinite(cfg.tickMs)) __DYNO_DUAL.tickMs = Math.max(2, Math.round(cfg.tickMs));
+    pprFront: 1,
+    pprRear:  1,
+    weightKg: 120,
 
-  if (isFinite(cfg.targetM)) {
-    __DYNO_DUAL.targetM = clamp(Math.round(cfg.targetM), __DYNO_DUAL.minTargetM, __DYNO_DUAL.maxTargetM);
-  }
+    // ratio untuk fallback rpm estimasi (kalau rpm valid = 0)
+    ratio: 9.0,
 
-  if (isFinite(cfg.circM)) __DYNO_DUAL.circM = Math.max(0.2, parseFloat(cfg.circM) || __DYNO_DUAL.circM);
+    // UI range
+    rpmStart: 2000,
+    rpmEnd:   20000,
 
-  // backward compat
-  if (isFinite(cfg.ppr) && !isFinite(cfg.pprRear)) cfg.pprRear = cfg.ppr;
-  if (isFinite(cfg.ppr) && !isFinite(cfg.pprFront)) cfg.pprFront = cfg.ppr;
+    // batas config
+    minTargetM: 10,
+    maxTargetM: 2001,
+    minWeightKg: 30,
+    maxWeightKg: 400,
 
-  if (isFinite(cfg.pprFront)) __DYNO_DUAL.pprFront = Math.max(1, Math.round(cfg.pprFront));
-  if (isFinite(cfg.pprRear))  __DYNO_DUAL.pprRear  = Math.max(1, Math.round(cfg.pprRear));
+    // logging
+    logEveryMs: 20,
+    _logAccMs: 0,
 
-  if (isFinite(cfg.weightKg)) {
-    __DYNO_DUAL.weightKg = clamp(Math.round(cfg.weightKg), __DYNO_DUAL.minWeightKg, __DYNO_DUAL.maxWeightKg);
-  }
+    // runtime
+    t0: 0,          // tombol run (safety)
+    lastNow: 0,
 
-  if (isFinite(cfg.ratio)) __DYNO_DUAL.ratio = clamp(parseFloat(cfg.ratio), 1.0, 30.0);
+    // raw totals (from ESP)
+    totalFrontPulses: 0,
+    totalRearPulses:  0,
 
-  if (isFinite(cfg.rpmStart)) __DYNO_DUAL.rpmStart = clamp(Math.round(cfg.rpmStart), 500, 50000);
-  if (isFinite(cfg.rpmEnd))   __DYNO_DUAL.rpmEnd   = clamp(Math.round(cfg.rpmEnd),  500, 50000);
+    // for dt from ESP packets
+    _lastEspTsMs: 0,
+    _lastEspPerfMs: 0,
+    _lastFrontTotal: 0,
+    _lastRearTotal: 0,
 
-  __DYNO_DUAL.logEveryMs = Math.max(8, __DYNO_DUAL.tickMs * 5);
-  return { ok: true };
-};
+    // ===========================
+    // TIME FROM FRONT PPR (same style)
+    // ===========================
+    _timeStarted: false,
+    _frontRunStartPulses: 0,
+    _frontStartPulses: 0,
+    _frontPulseClockMs: 0,   // update ketika front_total naik
+    _t0PulseMs: 0,
+    _distM_fromFront: 0,
 
-window.DYNO_arm_DUAL = async function(cfg = null) {
-  await delayDual(1);
-  if (cfg) window.DYNO_setConfig_DUAL(cfg);
+    // ===========================
+    // SLIP (TOTAL/PEAK)
+    // ===========================
+    _slipStartFrontPulses: 0,
+    _slipStartRearPulses: 0,
+    _slipPeakPct: 0,
+    _slipFrozen: false,
 
-  __DYNO_reset(true);
-  __DYNO_DUAL.armed = true;
-  __DYNO_DUAL.running = false;
-  __DYNO_DUAL.statusText = "ARMED: siap RUN. Target = " + __DYNO_DUAL.targetM + " m";
-  __DYNO_DUAL.lastEvent = "ARMED";
-  return { ok: true };
-};
+    slipPct: 0,
+    slipOn: false,
 
-window.DYNO_run_DUAL = async function() {
-  await delayDual(1);
+    // SPEED live (front/rear)
+    _vFront: 0, // m/s
+    _vRear:  0, // m/s
 
-  if (!__DYNO_DUAL.armed) {
-    __DYNO_DUAL.statusText = "HARUS ARM dulu.";
-    __DYNO_DUAL.lastEvent = "NEED_ARM";
-    return { ok: false, reason: "NEED_ARM" };
-  }
-  if (__DYNO_DUAL.running) return { ok: true };
+    // accel + hp smoothing
+    _vRearPrev: 0,
+    _aRear: 0,
+    _hpOut: 0,
 
-  __DYNO_DUAL.running = true;
+    // RPM
+    _rpmOut: 0,
 
-  // tombol RUN (safety timeout)
-  __DYNO_DUAL.t0 = performance.now();
-  __DYNO_DUAL.lastNow = __DYNO_DUAL.t0;
-  __DYNO_DUAL._accMs = 0;
-  __DYNO_DUAL._logAccMs = 0;
+    // output UI
+    t: 0,
+    distM: 0,
+    distPulseM: 0,
+    speedKmh: 0,
+    rpm: 0,
+    tq: 0,
+    hp: 0,
+    ign: 0,
+    afr: 14.7,   // HOLD dulu
 
-  // ✅ time dari PPR depan: reset gate start
-  __DYNO_DUAL._timeStarted = false;
-  __DYNO_DUAL.t = 0;
-  __DYNO_DUAL.distM = 0;
-  __DYNO_DUAL._distM_fromFront = 0;
+    maxHP: 0,
+    maxTQ: 0,
 
-  __DYNO_DUAL._frontRunStartPulses = __DYNO_DUAL.totalFrontPulses;
-  __DYNO_DUAL._frontStartPulses = __DYNO_DUAL.totalFrontPulses;
-  __DYNO_DUAL._frontPulseClockMs = performance.now();
-  __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs;
+    rows: [],
+    seq: 0,
 
-  // ✅ SLIP: reset total slip (mulai dari RUN)
-  __DYNO_DUAL._slipRevTotal = 0;
-  __DYNO_DUAL._slipStartFrontPulses = __DYNO_DUAL.totalFrontPulses;
-  __DYNO_DUAL._slipStartRearPulses  = __DYNO_DUAL.totalRearPulses;
-  __DYNO_DUAL._slipPeakPct = 0;
-  __DYNO_DUAL._slipFrozen = false;
-  __DYNO_DUAL.slipPct = 0;
-  __DYNO_DUAL.slipOn  = false;
+    // status utama (bukan status koneksi kecil)
+    statusText: "READY",
+    lastEvent: "",
 
-  __DYNO_DUAL.statusText = "RUNNING... start time setelah 1 putaran roda depan.";
-  __DYNO_DUAL.lastEvent = "RUNNING";
-
-  __DYNO_pushRow(); // row awal
-  __DYNO_startLoop();
-  return { ok: true };
-};
-
-window.DYNO_stop_DUAL = async function(reason = "STOP") {
-  await delayDual(1);
-
-  __DYNO_DUAL.running = false;
-  __DYNO_DUAL.armed = false;
-  __DYNO_DUAL.lastEvent = reason;
-
-  if (reason === "AUTO_STOP") {
-    __DYNO_DUAL.statusText = "AUTO STOP: target jarak tercapai (" + __DYNO_DUAL.targetM + " m).";
-  } else if (reason === "TIMEOUT") {
-    __DYNO_DUAL.statusText = "AUTO STOP: TIMEOUT.";
-  } else {
-    __DYNO_DUAL.statusText = "STOP. Data tersimpan (belum dihapus).";
-  }
-
-  __DYNO_stopLoop();
-  return { ok: true };
-};
-
-window.DYNO_getSnapshot_DUAL = async function() {
-  await delayDual(SIM_DELAY_DUAL);
-
-  return {
-    armed: __DYNO_DUAL.armed,
-    running: __DYNO_DUAL.running,
-
-    tickMs: __DYNO_DUAL.tickMs,
-    targetM: __DYNO_DUAL.targetM,
-    circM: __DYNO_DUAL.circM,
-    pprFront: __DYNO_DUAL.pprFront,
-    pprRear: __DYNO_DUAL.pprRear,
-    weightKg: __DYNO_DUAL.weightKg,
-
-    t: __DYNO_DUAL.t,
-    distM: __DYNO_DUAL.distM,
-
-    speedKmh: __DYNO_DUAL.speedKmh,
-    rpm: __DYNO_DUAL.rpm,
-    tq: __DYNO_DUAL.tq,
-    hp: __DYNO_DUAL.hp,
-    ign: __DYNO_DUAL.ign,
-    afr: __DYNO_DUAL.afr,
-
-    slipPct: __DYNO_DUAL.slipPct,
-    slipOn:  __DYNO_DUAL.slipOn,
-
-    maxHP: __DYNO_DUAL.maxHP,
-    maxTQ: __DYNO_DUAL.maxTQ,
-
-    rowsCount: __DYNO_DUAL.rows.length,
-    seq: __DYNO_DUAL.seq,
-
-    statusText: __DYNO_DUAL.statusText,
-    lastEvent: __DYNO_DUAL.lastEvent
+    // koneksi indicator (untuk kotak status kecil di samping tombol ARM)
+    linkOk: false,
+    linkText: "DYNO TIDAK TERHUBUNG",
+    _espPollTimer: null,
+    _espInFlight: false,
+    _espFailCount: 0
   };
-};
 
-window.DYNO_getRowsSince_DUAL = async function(lastSeq = 0) {
-  await delayDual(SIM_DELAY_DUAL);
-  const out = [];
-  for (const r of __DYNO_DUAL.rows) if (r.seq > lastSeq) out.push(r);
-  return { rows: out, seq: __DYNO_DUAL.seq };
-};
+  // ================================
+  // PUBLIC API (dipakai dyno-road.js)
+  // ================================
+  window.DYNO_setConfig_DUAL = function(cfg = {}) {
+    if (typeof cfg !== "object") return { ok: false };
 
-// ================================
-// LOOP
-// ================================
-function __DYNO_startLoop() {
-  if (__DYNO_DUAL._timer) return;
-  const loopMs = 4;
-  __DYNO_DUAL._timer = setInterval(() => {
-    if (!__DYNO_DUAL.running) return;
-    __DYNO_advanceToNow();
-  }, loopMs);
-}
-function __DYNO_stopLoop() {
-  if (__DYNO_DUAL._timer) {
-    clearInterval(__DYNO_DUAL._timer);
-    __DYNO_DUAL._timer = null;
-  }
-}
+    if (isFinite(cfg.tickMs)) __DYNO_DUAL.tickMs = Math.max(2, Math.round(cfg.tickMs));
 
-function __DYNO_reset(clearLog) {
-  __DYNO_stopLoop();
+    if (isFinite(cfg.targetM)) {
+      __DYNO_DUAL.targetM = clamp(Math.round(cfg.targetM), __DYNO_DUAL.minTargetM, __DYNO_DUAL.maxTargetM);
+    }
 
-  __DYNO_DUAL.t0 = 0;
-  __DYNO_DUAL.lastNow = 0;
-  __DYNO_DUAL._accMs = 0;
-  __DYNO_DUAL._logAccMs = 0;
+    if (isFinite(cfg.circM)) __DYNO_DUAL.circM = Math.max(0.2, parseFloat(cfg.circM) || __DYNO_DUAL.circM);
 
-  __DYNO_DUAL.t = 0;
+    // backward compat
+    if (isFinite(cfg.ppr) && !isFinite(cfg.pprRear)) cfg.pprRear = cfg.ppr;
+    if (isFinite(cfg.ppr) && !isFinite(cfg.pprFront)) cfg.pprFront = cfg.ppr;
 
-  __DYNO_DUAL.totalFrontPulses = 0;
-  __DYNO_DUAL.totalRearPulses = 0;
-  __DYNO_DUAL._frontPulseFrac = 0;
-  __DYNO_DUAL._rearPulseFrac = 0;
+    if (isFinite(cfg.pprFront)) __DYNO_DUAL.pprFront = Math.max(1, Math.round(cfg.pprFront));
+    if (isFinite(cfg.pprRear))  __DYNO_DUAL.pprRear  = Math.max(1, Math.round(cfg.pprRear));
 
-  __DYNO_DUAL._vTrue = 0;
-  __DYNO_DUAL._distTrue = 0;
+    if (isFinite(cfg.weightKg)) {
+      __DYNO_DUAL.weightKg = clamp(Math.round(cfg.weightKg), __DYNO_DUAL.minWeightKg, __DYNO_DUAL.maxWeightKg);
+    }
 
-  // time-from-front reset
-  __DYNO_DUAL._timeStarted = false;
-  __DYNO_DUAL._frontRunStartPulses = 0;
-  __DYNO_DUAL._frontStartPulses = 0;
-  __DYNO_DUAL._frontPulseClockMs = performance.now();
-  __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs;
-  __DYNO_DUAL._distM_fromFront = 0;
+    if (isFinite(cfg.ratio)) __DYNO_DUAL.ratio = clamp(parseFloat(cfg.ratio), 1.0, 30.0);
 
-  // slip reset
-  __DYNO_DUAL._slipRevTotal = 0;
-  __DYNO_DUAL._slipStartFrontPulses = 0;
-  __DYNO_DUAL._slipStartRearPulses  = 0;
-  __DYNO_DUAL._slipPeakPct = 0;
-  __DYNO_DUAL._slipFrozen = false;
-  __DYNO_DUAL.slipPct = 0;
-  __DYNO_DUAL.slipOn  = false;
+    if (isFinite(cfg.rpmStart)) __DYNO_DUAL.rpmStart = clamp(Math.round(cfg.rpmStart), 500, 50000);
+    if (isFinite(cfg.rpmEnd))   __DYNO_DUAL.rpmEnd   = clamp(Math.round(cfg.rpmEnd),  500, 50000);
 
-  __DYNO_DUAL._frontWinAccMs = 0;
-  __DYNO_DUAL._frontWinStartPulses = 0;
-  __DYNO_DUAL._vFront = 0;
+    __DYNO_DUAL.logEveryMs = Math.max(12, __DYNO_DUAL.tickMs * 6);
+    return { ok: true };
+  };
 
-  __DYNO_DUAL._rearLastPulses = 0;
-  __DYNO_DUAL._rearLastPulseMs = performance.now();
-  __DYNO_DUAL._vRearTarget = 0;
-  __DYNO_DUAL._vRear = 0;
-  __DYNO_DUAL._vRearPrev = 0;
-  __DYNO_DUAL._aRear = 0;
+  window.DYNO_arm_DUAL = async function(cfg = null) {
+    if (cfg) window.DYNO_setConfig_DUAL(cfg);
 
-  __DYNO_DUAL._rpmTrue = __DYNO_DUAL.rpmStart;
-  __DYNO_DUAL._rpmOut = __DYNO_DUAL.rpmStart;
-
-  __DYNO_DUAL._hpOut = 0;
-
-  __DYNO_DUAL.distM = 0;
-  __DYNO_DUAL.distPulseM = 0;
-  __DYNO_DUAL.speedKmh = 0;
-  __DYNO_DUAL.rpm = __DYNO_DUAL.rpmStart;
-  __DYNO_DUAL.tq = 0;
-  __DYNO_DUAL.hp = 0;
-  __DYNO_DUAL.ign = 0;
-  __DYNO_DUAL.afr = 14.7;
-
-  __DYNO_DUAL.maxHP = 0;
-  __DYNO_DUAL.maxTQ = 0;
-
-  if (clearLog) {
-    __DYNO_DUAL.rows = [];
-    __DYNO_DUAL.seq = 0;
-  }
-
-  __DYNO_DUAL.statusText = "READY";
-  __DYNO_DUAL.lastEvent = "READY";
-}
-
-function __DYNO_advanceToNow() {
-  const now = performance.now();
-  let dtMs = now - (__DYNO_DUAL.lastNow || now);
-  if (!isFinite(dtMs) || dtMs < 0) dtMs = 0;
-
-  __DYNO_DUAL.lastNow = now;
-  __DYNO_DUAL._accMs += dtMs;
-
-  const stepMs = Math.max(2, __DYNO_DUAL.tickMs);
-  const maxSteps = 400;
-  let steps = 0;
-
-  while (__DYNO_DUAL._accMs >= stepMs && steps < maxSteps && __DYNO_DUAL.running) {
-    __DYNO_DUAL._accMs -= stepMs;
-    __DYNO_step(stepMs / 1000);
-    steps++;
-  }
-}
-
-// ================================
-// CORE SIM + MEASURE
-// ================================
-function __DYNO_step(dt) {
-  const nowMs = performance.now();
-
-  // safety timeout (pakai tombol run timer)
-  const tSinceRun = (nowMs - __DYNO_DUAL.t0) / 1000;
-  if (tSinceRun >= 60) {
+    __DYNO_reset(true);
+    __DYNO_DUAL.armed = true;
     __DYNO_DUAL.running = false;
-    __DYNO_DUAL.armed = false;
-    __DYNO_DUAL.lastEvent = "TIMEOUT";
-    __DYNO_DUAL.statusText = "AUTO STOP: TIMEOUT.";
-    __DYNO_stopLoop();
-    return;
-  }
+    __DYNO_DUAL.statusText = "ARMED: siap RUN. Target = " + __DYNO_DUAL.targetM + " m";
+    __DYNO_DUAL.lastEvent = "ARMED";
 
-  const m = Math.max(1, __DYNO_DUAL.weightKg);
-  const circ = Math.max(0.2, __DYNO_DUAL.circM);
+    __DYNO_startEspPoll(); // cek koneksi walau belum RUN
+    return { ok: true };
+  };
 
-  // 1) SIMULASI GERAK (TRUE)
-  const v = __DYNO_DUAL._vTrue;
-  const vKmh = v * 3.6;
-
-  const drop = clamp(1.0 - (vKmh / TARGET_SPEED_KMH) * 0.25, 0.65, 1.0);
-  const thrustN = __DYNO_DUAL.thrustN_base * drop;
-
-  const aTrue = thrustN / m;
-
-  __DYNO_DUAL._vTrue = clamp(v + aTrue * dt, 0, VMAX);
-  const distStep = __DYNO_DUAL._vTrue * dt;
-  __DYNO_DUAL._distTrue += distStep;
-
-  // 2) GENERATE PULSES (SIM)
-  const rev = distStep / circ;
-
-  const pf = Math.max(1, __DYNO_DUAL.pprFront);
-  __DYNO_DUAL._frontPulseFrac += rev * pf;
-
-  let addFront = 0;
-  if (__DYNO_DUAL._frontPulseFrac >= 1) {
-    addFront = Math.floor(__DYNO_DUAL._frontPulseFrac);
-    __DYNO_DUAL.totalFrontPulses += addFront;
-    __DYNO_DUAL._frontPulseFrac -= addFront;
-
-    // time source: pulse clock hanya maju kalau ada pulse
-    __DYNO_DUAL._frontPulseClockMs = nowMs;
-  }
-
-  const rpmEst = clamp(((__DYNO_DUAL._vTrue / circ) * 60) * __DYNO_DUAL.ratio, __DYNO_DUAL.rpmStart, __DYNO_DUAL.rpmEnd);
-
-  const pr = Math.max(1, __DYNO_DUAL.pprRear);
-
-  // SLIP SIM hanya awal start
-  let slipFactor = 0;
-  if (SLIP_SIM_ENABLE && !__DYNO_DUAL._slipFrozen) {
-    const frontRevRun = (__DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._slipStartFrontPulses) / pf;
-    const distRun = Math.max(0, frontRevRun) * circ;
-    if (distRun < SLIP_SIM_DIST_M && rpmEst >= SLIP_SIM_RPM_MIN && rpmEst <= SLIP_SIM_RPM_MAX) {
-      const k = clamp(1.0 - (distRun / Math.max(0.001, SLIP_SIM_DIST_M)), 0, 1);
-      slipFactor = SLIP_SIM_EXTRA_MAX * k;
+  window.DYNO_run_DUAL = async function() {
+    if (!__DYNO_DUAL.armed) {
+      __DYNO_DUAL.statusText = "HARUS ARM dulu.";
+      __DYNO_DUAL.lastEvent = "NEED_ARM";
+      return { ok: false, reason: "NEED_ARM" };
     }
-  }
+    if (__DYNO_DUAL.running) return { ok: true };
 
-  __DYNO_DUAL._rearPulseFrac += (rev * pr) * (1.0 + slipFactor);
-  if (__DYNO_DUAL._rearPulseFrac >= 1) {
-    const addRear = Math.floor(__DYNO_DUAL._rearPulseFrac);
-    __DYNO_DUAL.totalRearPulses += addRear;
-    __DYNO_DUAL._rearPulseFrac -= addRear;
-  }
+    __DYNO_DUAL.running = true;
 
-  // 3) LIVE SPEED dari PPR DEPAN (window)
-  __DYNO_DUAL._frontWinAccMs += dt * 1000;
-  if (__DYNO_DUAL._frontWinAccMs >= FRONT_WIN_MS) {
-    const winSec = FRONT_WIN_MS / 1000;
-    const pulsesNow = __DYNO_DUAL.totalFrontPulses;
-    const dPulses = pulsesNow - __DYNO_DUAL._frontWinStartPulses;
+    // safety timeout pakai tombol RUN
+    __DYNO_DUAL.t0 = performance.now();
+    __DYNO_DUAL.lastNow = __DYNO_DUAL.t0;
 
-    const distWin = (dPulses / pf) * circ;
-    const vInst = distWin / Math.max(0.001, winSec);
-
-    const alpha = 0.35;
-    __DYNO_DUAL._vFront = __DYNO_DUAL._vFront + (vInst - __DYNO_DUAL._vFront) * alpha;
-
-    __DYNO_DUAL._frontWinAccMs -= FRONT_WIN_MS;
-    __DYNO_DUAL._frontWinStartPulses = pulsesNow;
-  }
-
-  // SLIP TOTAL (peak)
-  {
-    const frontRevRun = (__DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._slipStartFrontPulses) / pf;
-    const rearRevRun  = (__DYNO_DUAL.totalRearPulses  - __DYNO_DUAL._slipStartRearPulses)  / pr;
-    const slipRevNow  = Math.max(0, rearRevRun - frontRevRun);
-    const slipPctNow  = isFinite(slipRevNow) ? slipRevNow : 0;
-
-    if (!__DYNO_DUAL._slipFrozen) {
-      __DYNO_DUAL._slipPeakPct = Math.max(__DYNO_DUAL._slipPeakPct, slipPctNow);
-      const distRun = Math.max(0, frontRevRun) * circ;
-      if (distRun >= 10 || rpmEst > SLIP_SIM_RPM_MAX) {
-        __DYNO_DUAL._slipFrozen = true;
-      }
-    }
-
-    __DYNO_DUAL.slipPct = clamp(__DYNO_DUAL._slipPeakPct, 0, 9999);
-    __DYNO_DUAL.slipOn  = (__DYNO_DUAL._slipPeakPct > 1e-6);
-  }
-
-  // START TIME setelah 1 putaran roda depan
-  if (!__DYNO_DUAL._timeStarted) {
-    const pulsesSinceRun = __DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._frontRunStartPulses;
-    const revSinceRun = pulsesSinceRun / pf;
-
-    if (revSinceRun >= 1.0) {
-      __DYNO_DUAL._timeStarted = true;
-
-      __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs || nowMs;
-      __DYNO_DUAL._frontStartPulses = __DYNO_DUAL.totalFrontPulses;
-
-      __DYNO_DUAL.t = 0;
-      __DYNO_DUAL.distM = 0;
-      __DYNO_DUAL._distM_fromFront = 0;
-
-      __DYNO_DUAL.statusText = "RUNNING... (time start setelah 1 putaran depan)";
-      __DYNO_DUAL.lastEvent = "TIME_START";
-    } else {
-      __DYNO_DUAL.t = 0;
-      __DYNO_DUAL.distM = 0;
-      __DYNO_DUAL._distM_fromFront = 0;
-    }
-  }
-
-  // 4) REAR SPEED untuk HP
-  if (SIM_IDEAL_REAR) {
-    __DYNO_DUAL._vRearTarget = __DYNO_DUAL._vTrue;
-    const beta = clamp(1.0 - Math.exp(-dt * REAR_SLEW_HZ_SIM), 0.02, 0.45);
-    __DYNO_DUAL._vRear = __DYNO_DUAL._vRear + (__DYNO_DUAL._vRearTarget - __DYNO_DUAL._vRear) * beta;
-    __DYNO_DUAL._vRear = clamp(__DYNO_DUAL._vRear, 0, VMAX);
-  } else {
-    const rearNow = __DYNO_DUAL.totalRearPulses;
-    const dRear = rearNow - __DYNO_DUAL._rearLastPulses;
-
-    if (dRear > 0) {
-      const dtPulse = Math.max(0.001, (nowMs - __DYNO_DUAL._rearLastPulseMs) / 1000);
-      const distPulse = (dRear / pr) * circ;
-      const vTarget = distPulse / dtPulse;
-
-      __DYNO_DUAL._vRearTarget = clamp(vTarget, 0, VMAX);
-      __DYNO_DUAL._rearLastPulseMs = nowMs;
-      __DYNO_DUAL._rearLastPulses = rearNow;
-    }
-
-    const beta = clamp(1.0 - Math.exp(-dt * 10.0), 0.02, 0.45);
-    __DYNO_DUAL._vRear = __DYNO_DUAL._vRear + (__DYNO_DUAL._vRearTarget - __DYNO_DUAL._vRear) * beta;
-    __DYNO_DUAL._vRear = clamp(__DYNO_DUAL._vRear, 0, VMAX);
-  }
-
-  // accel rear (halus)
-  const aInst = (__DYNO_DUAL._vRear - __DYNO_DUAL._vRearPrev) / Math.max(1e-6, dt);
-  __DYNO_DUAL._vRearPrev = __DYNO_DUAL._vRear;
-
-  const aAlpha = clamp(0.10 + dt * 8.0, 0.12, 0.40);
-  __DYNO_DUAL._aRear = __DYNO_DUAL._aRear + (aInst - __DYNO_DUAL._aRear) * aAlpha;
-
-  // 5) RPM mesin (halus)
-  const wheelRpmTrue = (__DYNO_DUAL._vTrue / circ) * 60;
-  const rpmTrue = wheelRpmTrue * __DYNO_DUAL.ratio;
-
-  __DYNO_DUAL._rpmTrue = clamp(rpmTrue, __DYNO_DUAL.rpmStart, __DYNO_DUAL.rpmEnd);
-
-  const rpmAlpha = clamp(0.10 + dt * 6.0, 0.12, 0.55);
-  __DYNO_DUAL._rpmOut = __DYNO_DUAL._rpmOut + (__DYNO_DUAL._rpmTrue - __DYNO_DUAL._rpmOut) * rpmAlpha;
-
-  // 6) HP dari m*a*v (tanpa aero)
-  const vUse = __DYNO_DUAL._vRear;
-  const aUse = Math.max(0, __DYNO_DUAL._aRear);
-  const P_watt = Math.max(0, (m * aUse) * vUse);
-
-  let hpRaw = P_watt / WATT_PER_HP;
-  hpRaw = clamp(hpRaw, 0, TARGET_HP_PEAK);
-
-  const hpBeta = clamp(1.0 - Math.exp(-dt * HP_SMOOTH_HZ), 0.03, 0.35);
-  __DYNO_DUAL._hpOut = __DYNO_DUAL._hpOut + (hpRaw - __DYNO_DUAL._hpOut) * hpBeta;
-
-  const hp = clamp(__DYNO_DUAL._hpOut, 0, TARGET_HP_PEAK);
-
-  // 7) TQ dari HP + RPM
-  const rpm = clamp(__DYNO_DUAL._rpmOut, __DYNO_DUAL.rpmStart, __DYNO_DUAL.rpmEnd);
-  const tq = (hp * 7127) / Math.max(1, rpm);
-
-  // 8) IGN & AFR SIM
-  const ign = clamp(12 + (rpm / 20000) * 18, 0, 70);
-  const afr = clamp(14.7 + (rpm / 20000) * 1.8 - (hp / TARGET_HP_PEAK) * 1.0, 10.0, 22.0);
-
-  // output time/dist dari FRONT PPR
-  __DYNO_DUAL.distPulseM = (__DYNO_DUAL.totalFrontPulses / pf) * circ;
-
-  if (__DYNO_DUAL._timeStarted) {
-    const pulsesSinceStart = __DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._frontStartPulses;
-    __DYNO_DUAL._distM_fromFront = (pulsesSinceStart / pf) * circ;
-
-    const tPulse = ((__DYNO_DUAL._frontPulseClockMs || nowMs) - __DYNO_DUAL._t0PulseMs) / 1000;
-    __DYNO_DUAL.t = Math.max(0, tPulse);
-
-    __DYNO_DUAL.distM = Math.max(0, __DYNO_DUAL._distM_fromFront);
-  } else {
+    // gate start time (front ppr)
+    __DYNO_DUAL._timeStarted = false;
     __DYNO_DUAL.t = 0;
     __DYNO_DUAL.distM = 0;
-  }
+    __DYNO_DUAL._distM_fromFront = 0;
 
-  // SPEED LIVE tetap dari front window
-  __DYNO_DUAL.speedKmh = clamp(__DYNO_DUAL._vFront, 0, VMAX) * 3.6;
+    __DYNO_DUAL._frontRunStartPulses = __DYNO_DUAL.totalFrontPulses;
+    __DYNO_DUAL._frontStartPulses = __DYNO_DUAL.totalFrontPulses;
+    __DYNO_DUAL._frontPulseClockMs = performance.now();
+    __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs;
 
-  __DYNO_DUAL.rpm = rpm;
-  __DYNO_DUAL.hp  = __DYNO_DUAL._timeStarted ? hp : 0;
-  __DYNO_DUAL.tq  = __DYNO_DUAL._timeStarted ? tq : 0;
-  __DYNO_DUAL.ign = __DYNO_DUAL._timeStarted ? ign : 0;
-  __DYNO_DUAL.afr = __DYNO_DUAL._timeStarted ? afr : 14.7;
+    // slip reset (mulai dari RUN)
+    __DYNO_DUAL._slipStartFrontPulses = __DYNO_DUAL.totalFrontPulses;
+    __DYNO_DUAL._slipStartRearPulses  = __DYNO_DUAL.totalRearPulses;
+    __DYNO_DUAL._slipPeakPct = 0;
+    __DYNO_DUAL._slipFrozen = false;
+    __DYNO_DUAL.slipPct = 0;
+    __DYNO_DUAL.slipOn  = false;
 
-  if (__DYNO_DUAL.hp > __DYNO_DUAL.maxHP) __DYNO_DUAL.maxHP = __DYNO_DUAL.hp;
-  if (__DYNO_DUAL.tq > __DYNO_DUAL.maxTQ) __DYNO_DUAL.maxTQ = __DYNO_DUAL.tq;
-
-  // logging
-  __DYNO_DUAL._logAccMs += dt * 1000;
-  if (__DYNO_DUAL._logAccMs >= __DYNO_DUAL.logEveryMs) {
+    // reset hp smoothing
     __DYNO_DUAL._logAccMs = 0;
-    __DYNO_pushRow();
-  }
+    __DYNO_DUAL._hpOut = 0;
+    __DYNO_DUAL._aRear = 0;
+    __DYNO_DUAL._vRearPrev = __DYNO_DUAL._vRear;
 
-  // AUTO STOP dari jarak FRONT PPR
-  if (__DYNO_DUAL._timeStarted && __DYNO_DUAL.distM >= __DYNO_DUAL.targetM) {
-    __DYNO_DUAL.distM = __DYNO_DUAL.targetM;
+    __DYNO_DUAL.statusText = "RUNNING... start time setelah 1 putaran roda depan.";
+    __DYNO_DUAL.lastEvent = "RUNNING";
+
+    __DYNO_pushRow(); // row awal (t=0 dist=0)
+    __DYNO_startEspPoll(); // pastikan polling jalan
+    return { ok: true };
+  };
+
+  window.DYNO_stop_DUAL = async function(reason = "STOP") {
     __DYNO_DUAL.running = false;
     __DYNO_DUAL.armed = false;
-    __DYNO_DUAL.lastEvent = "AUTO_STOP";
-    __DYNO_DUAL.statusText = "AUTO STOP: target jarak tercapai (" + __DYNO_DUAL.targetM + " m).";
-    __DYNO_stopLoop();
+    __DYNO_DUAL.lastEvent = reason;
+
+    if (reason === "AUTO_STOP") {
+      __DYNO_DUAL.statusText = "AUTO STOP: target jarak tercapai (" + __DYNO_DUAL.targetM + " m).";
+    } else if (reason === "TIMEOUT") {
+      __DYNO_DUAL.statusText = "AUTO STOP: TIMEOUT.";
+    } else {
+      __DYNO_DUAL.statusText = "STOP. Data tersimpan (belum dihapus).";
+    }
+
+    __DYNO_stopEspPoll();
+    return { ok: true };
+  };
+
+  window.DYNO_getSnapshot_DUAL = async function() {
+    return {
+      armed: __DYNO_DUAL.armed,
+      running: __DYNO_DUAL.running,
+
+      tickMs: __DYNO_DUAL.tickMs,
+      targetM: __DYNO_DUAL.targetM,
+      circM: __DYNO_DUAL.circM,
+      pprFront: __DYNO_DUAL.pprFront,
+      pprRear: __DYNO_DUAL.pprRear,
+      weightKg: __DYNO_DUAL.weightKg,
+
+      t: __DYNO_DUAL.t,
+      distM: __DYNO_DUAL.distM,
+
+      speedKmh: __DYNO_DUAL.speedKmh,
+      rpm: __DYNO_DUAL.rpm,
+      tq: __DYNO_DUAL.tq,
+      hp: __DYNO_DUAL.hp,
+      ign: __DYNO_DUAL.ign,
+      afr: __DYNO_DUAL.afr,
+
+      slipPct: __DYNO_DUAL.slipPct,
+      slipOn:  __DYNO_DUAL.slipOn,
+
+      maxHP: __DYNO_DUAL.maxHP,
+      maxTQ: __DYNO_DUAL.maxTQ,
+
+      rowsCount: __DYNO_DUAL.rows.length,
+      seq: __DYNO_DUAL.seq,
+
+      statusText: __DYNO_DUAL.statusText,
+      lastEvent: __DYNO_DUAL.lastEvent,
+
+      // ✅ koneksi indicator (untuk kotak status kecil)
+      linkOk: __DYNO_DUAL.linkOk,
+      linkText: __DYNO_DUAL.linkText
+    };
+  };
+
+  window.DYNO_getRowsSince_DUAL = async function(lastSeq = 0) {
+    const out = [];
+    for (const r of __DYNO_DUAL.rows) if (r.seq > lastSeq) out.push(r);
+    return { rows: out, seq: __DYNO_DUAL.seq };
+  };
+
+  // ================================
+  // ESP POLLING
+  // ================================
+  function __DYNO_startEspPoll(){
+    if (__DYNO_DUAL._espPollTimer) return;
+
+    __DYNO_DUAL._lastEspPerfMs = performance.now();
+    __DYNO_DUAL._espFailCount = 0;
+
+    __DYNO_DUAL._espPollTimer = setInterval(() => {
+      __DYNO_pollESP();
+    }, ESP_POLL_MS);
+
+    __DYNO_pollESP();
   }
-}
 
-function __DYNO_pushRow() {
-  __DYNO_DUAL.seq++;
-  __DYNO_DUAL.rows.push({
-    seq: __DYNO_DUAL.seq,
-    t: __DYNO_DUAL.t,
-    rpm: __DYNO_DUAL.rpm,
-    tq: __DYNO_DUAL.tq,
-    hp: __DYNO_DUAL.hp,
-    ign: __DYNO_DUAL.ign,
-    afr: __DYNO_DUAL.afr,
-    dist: __DYNO_DUAL.distM,
-    spd: __DYNO_DUAL.speedKmh
-  });
-
-  if (__DYNO_DUAL.rows.length > 6000) {
-    __DYNO_DUAL.rows.splice(0, __DYNO_DUAL.rows.length - 6000);
+  function __DYNO_stopEspPoll(){
+    if (__DYNO_DUAL._espPollTimer){
+      clearInterval(__DYNO_DUAL._espPollTimer);
+      __DYNO_DUAL._espPollTimer = null;
+    }
+    __DYNO_DUAL._espInFlight = false;
   }
-}
 
-// helpers
-function delayDual(ms) {
-  ms = Math.max(0, ms || 0);
-  if (!ms) return Promise.resolve();
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  async function __DYNO_pollESP(){
+    if (__DYNO_DUAL._espInFlight) return;
+    __DYNO_DUAL._espInFlight = true;
+
+    const url = ESP_BASE_URL + ESP_SNAPSHOT;
+
+    try{
+      const j = await fetchJSON(url, {}, ESP_TIMEOUT_MS);
+
+      // validasi minimal supaya “online” tidak false-positive
+      const hasFront = j && (typeof j.front_total !== "undefined");
+      const hasRear  = j && (typeof j.rear_total  !== "undefined");
+      if (!hasFront || !hasRear) throw new Error("BAD_SNAPSHOT");
+
+      __DYNO_DUAL._espFailCount = 0;
+      __DYNO_setLink(true);
+
+      __DYNO_applyEspSnapshot(j);
+    }catch(e){
+      __DYNO_DUAL._espFailCount++;
+
+      if (__DYNO_DUAL._espFailCount >= 2) {
+        __DYNO_setLink(false);
+      }
+      // tidak reset data: keep last-known
+    }finally{
+      __DYNO_DUAL._espInFlight = false;
+    }
+
+    // safety timeout kalau running tapi koneksi putus lama
+    if (__DYNO_DUAL.running){
+      const tSinceRun = (performance.now() - __DYNO_DUAL.t0) / 1000;
+      if (tSinceRun >= 60) {
+        __DYNO_DUAL.running = false;
+        __DYNO_DUAL.armed = false;
+        __DYNO_DUAL.lastEvent = "TIMEOUT";
+        __DYNO_DUAL.statusText = "AUTO STOP: TIMEOUT.";
+        __DYNO_stopEspPoll();
+      }
+    }
+  }
+
+  // Event optional untuk UI (kalau dyno-road.js mau dengar)
+  function __DYNO_emitConn(){
+    try{
+      window.dispatchEvent(new CustomEvent("DYNO_CONN", {
+        detail: {
+          ok: __DYNO_DUAL.linkOk,
+          text: __DYNO_DUAL.linkText,
+          host: ESP_BASE_URL,
+          ts: Date.now()
+        }
+      }));
+    }catch(e){}
+  }
+
+  function __DYNO_setLink(isOk){
+    const next = !!isOk;
+    if (next === __DYNO_DUAL.linkOk) return;
+
+    __DYNO_DUAL.linkOk = next;
+    __DYNO_DUAL.linkText = __DYNO_DUAL.linkOk ? "DYNO TERHUBUNG" : "DYNO TIDAK TERHUBUNG";
+
+    __DYNO_emitConn();
+  }
+
+  function __DYNO_applyEspSnapshot(j){
+    // Ambil mentah
+    const tsMs       = isFinite(j.ts_ms) ? +j.ts_ms : 0;
+    const frontTotal = isFinite(j.front_total) ? Math.max(0, Math.floor(+j.front_total)) : __DYNO_DUAL.totalFrontPulses;
+    const rearTotal  = isFinite(j.rear_total)  ? Math.max(0, Math.floor(+j.rear_total))  : __DYNO_DUAL.totalRearPulses;
+
+    const rpmValid   = (isFinite(j.rpm_valid) ? (+j.rpm_valid) : 0) ? 1 : 0;
+    const rpmIn      = isFinite(j.rpm) ? (+j.rpm) : 0;
+
+    // Optional: sync dari ESP (disabled by default)
+    if (isFinite(j.circ_m) && j.circ_m > 0.2 && j.circ_m < 10) {
+      // __DYNO_DUAL.circM = +j.circ_m;
+    }
+    if (isFinite(j.ppr_f) && j.ppr_f >= 1 && j.ppr_f <= 2000) {
+      // __DYNO_DUAL.pprFront = Math.round(+j.ppr_f);
+    }
+    if (isFinite(j.ppr_r) && j.ppr_r >= 1 && j.ppr_r <= 2000) {
+      // __DYNO_DUAL.pprRear = Math.round(+j.ppr_r);
+    }
+
+    const pf = Math.max(1, __DYNO_DUAL.pprFront);
+    const pr = Math.max(1, __DYNO_DUAL.pprRear);
+    const circ = Math.max(0.2, __DYNO_DUAL.circM);
+
+    // dt untuk speed calc
+    const nowPerf = performance.now();
+    const lastPerf = __DYNO_DUAL._lastEspPerfMs || nowPerf;
+    let dtSec = (nowPerf - lastPerf) / 1000;
+    if (!isFinite(dtSec) || dtSec <= 0) dtSec = ESP_POLL_MS / 1000;
+
+    __DYNO_DUAL._lastEspPerfMs = nowPerf;
+    __DYNO_DUAL._lastEspTsMs = tsMs || __DYNO_DUAL._lastEspTsMs;
+
+    // delta pulses
+    const dFront = frontTotal - (__DYNO_DUAL._lastFrontTotal || 0);
+    const dRear  = rearTotal  - (__DYNO_DUAL._lastRearTotal  || 0);
+
+    __DYNO_DUAL._lastFrontTotal = frontTotal;
+    __DYNO_DUAL._lastRearTotal  = rearTotal;
+
+    // set totals
+    __DYNO_DUAL.totalFrontPulses = frontTotal;
+    __DYNO_DUAL.totalRearPulses  = rearTotal;
+
+    // pulse clock update kalau ada pulse depan
+    if (dFront > 0) {
+      __DYNO_DUAL._frontPulseClockMs = nowPerf;
+    }
+
+    // 1) speed front
+    {
+      const distStep = (dFront / pf) * circ;
+      const vInst = distStep / Math.max(0.001, dtSec);
+      __DYNO_DUAL._vFront = __DYNO_DUAL._vFront + (vInst - __DYNO_DUAL._vFront) * FRONT_SMOOTH_ALPHA;
+      __DYNO_DUAL._vFront = clamp(__DYNO_DUAL._vFront, 0, 200);
+    }
+
+    // 2) speed rear
+    {
+      const distStep = (dRear / pr) * circ;
+      const vInst = distStep / Math.max(0.001, dtSec);
+      __DYNO_DUAL._vRear = __DYNO_DUAL._vRear + (vInst - __DYNO_DUAL._vRear) * REAR_SMOOTH_ALPHA;
+      __DYNO_DUAL._vRear = clamp(__DYNO_DUAL._vRear, 0, 200);
+    }
+
+    // 3) accel rear (smooth)
+    {
+      const aInst = (__DYNO_DUAL._vRear - __DYNO_DUAL._vRearPrev) / Math.max(1e-6, dtSec);
+      __DYNO_DUAL._vRearPrev = __DYNO_DUAL._vRear;
+      __DYNO_DUAL._aRear = __DYNO_DUAL._aRear + (aInst - __DYNO_DUAL._aRear) * ACC_SMOOTH_ALPHA;
+    }
+
+    // 4) RPM
+    {
+      let rpm = 0;
+      if (rpmValid && isFinite(rpmIn) && rpmIn > 0) {
+        rpm = rpmIn;
+      } else {
+        const wheelRpm = (__DYNO_DUAL._vFront / circ) * 60;
+        rpm = wheelRpm * __DYNO_DUAL.ratio;
+      }
+      rpm = clamp(rpm, __DYNO_DUAL.rpmStart, __DYNO_DUAL.rpmEnd);
+
+      const rpmAlpha = clamp(0.10 + dtSec * 6.0, 0.12, 0.55);
+      __DYNO_DUAL._rpmOut = __DYNO_DUAL._rpmOut + (rpm - __DYNO_DUAL._rpmOut) * rpmAlpha;
+      __DYNO_DUAL.rpm = __DYNO_DUAL._rpmOut;
+    }
+
+    // 5) SLIP peak + freeze (sejak RUN)
+    {
+      const frontRevRun = (__DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._slipStartFrontPulses) / pf;
+      const rearRevRun  = (__DYNO_DUAL.totalRearPulses  - __DYNO_DUAL._slipStartRearPulses)  / pr;
+      const slipRevNow  = Math.max(0, rearRevRun - frontRevRun);
+      const slipPctNow  = isFinite(slipRevNow) ? slipRevNow : 0;
+
+      if (!__DYNO_DUAL._slipFrozen) {
+        __DYNO_DUAL._slipPeakPct = Math.max(__DYNO_DUAL._slipPeakPct, slipPctNow);
+
+        const distRun = Math.max(0, frontRevRun) * circ;
+        if (distRun >= SLIP_FREEZE_DIST_M || __DYNO_DUAL.rpm > SLIP_FREEZE_RPM) {
+          __DYNO_DUAL._slipFrozen = true;
+        }
+      }
+
+      __DYNO_DUAL.slipPct = clamp(__DYNO_DUAL._slipPeakPct, 0, 9999);
+      __DYNO_DUAL.slipOn  = (__DYNO_DUAL._slipPeakPct > 1e-6);
+    }
+
+    // 6) START TIME setelah 1 putaran roda depan sejak RUN
+    if (__DYNO_DUAL.running) {
+      if (!__DYNO_DUAL._timeStarted) {
+        const pulsesSinceRun = __DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._frontRunStartPulses;
+        const revSinceRun = pulsesSinceRun / pf;
+
+        if (revSinceRun >= 1.0) {
+          __DYNO_DUAL._timeStarted = true;
+
+          __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs || nowPerf;
+          __DYNO_DUAL._frontStartPulses = __DYNO_DUAL.totalFrontPulses;
+
+          __DYNO_DUAL.t = 0;
+          __DYNO_DUAL.distM = 0;
+          __DYNO_DUAL._distM_fromFront = 0;
+
+          __DYNO_DUAL.lastEvent = "TIME_START";
+        } else {
+          __DYNO_DUAL.t = 0;
+          __DYNO_DUAL.distM = 0;
+          __DYNO_DUAL._distM_fromFront = 0;
+        }
+      }
+
+      // 7) OUTPUT time/dist dari FRONT PPR
+      __DYNO_DUAL.distPulseM = (__DYNO_DUAL.totalFrontPulses / pf) * circ;
+
+      if (__DYNO_DUAL._timeStarted) {
+        const pulsesSinceStart = __DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._frontStartPulses;
+        __DYNO_DUAL._distM_fromFront = (pulsesSinceStart / pf) * circ;
+
+        const tPulse = ((__DYNO_DUAL._frontPulseClockMs || nowPerf) - __DYNO_DUAL._t0PulseMs) / 1000;
+        __DYNO_DUAL.t = Math.max(0, tPulse);
+        __DYNO_DUAL.distM = Math.max(0, __DYNO_DUAL._distM_fromFront);
+      } else {
+        __DYNO_DUAL.t = 0;
+        __DYNO_DUAL.distM = 0;
+      }
+
+      // 8) SPEED LIVE dari front
+      __DYNO_DUAL.speedKmh = Math.max(0, __DYNO_DUAL._vFront) * 3.6;
+
+      // 9) HP dari m*a*v, hanya setelah start time
+      if (__DYNO_DUAL._timeStarted) {
+        const m = Math.max(1, __DYNO_DUAL.weightKg);
+        const vUse = Math.max(0, __DYNO_DUAL._vRear);
+        const aUse = Math.max(0, __DYNO_DUAL._aRear);
+        const P_watt = Math.max(0, (m * aUse) * vUse);
+
+        let hpRaw = P_watt / WATT_PER_HP;
+        hpRaw = clamp(hpRaw, 0, 999);
+
+        const hpBeta = clamp(1.0 - Math.exp(-dtSec * HP_SMOOTH_HZ), 0.03, 0.35);
+        __DYNO_DUAL._hpOut = __DYNO_DUAL._hpOut + (hpRaw - __DYNO_DUAL._hpOut) * hpBeta;
+
+        __DYNO_DUAL.hp = clamp(__DYNO_DUAL._hpOut, 0, 999);
+
+        const rpmNow = clamp(__DYNO_DUAL.rpm, __DYNO_DUAL.rpmStart, __DYNO_DUAL.rpmEnd);
+        __DYNO_DUAL.tq = (__DYNO_DUAL.hp * 7127) / Math.max(1, rpmNow);
+
+        __DYNO_DUAL.ign = clamp(12 + (rpmNow / 20000) * 18, 0, 70);
+        __DYNO_DUAL.afr = 14.7; // HOLD
+      } else {
+        __DYNO_DUAL.hp  = 0;
+        __DYNO_DUAL.tq  = 0;
+        __DYNO_DUAL.ign = 0;
+        __DYNO_DUAL.afr = 14.7;
+      }
+
+      if (__DYNO_DUAL.hp > __DYNO_DUAL.maxHP) __DYNO_DUAL.maxHP = __DYNO_DUAL.hp;
+      if (__DYNO_DUAL.tq > __DYNO_DUAL.maxTQ) __DYNO_DUAL.maxTQ = __DYNO_DUAL.tq;
+
+      // logging rows (hanya setelah start time)
+      __DYNO_DUAL._logAccMs += dtSec * 1000;
+      if (__DYNO_DUAL._timeStarted && __DYNO_DUAL._logAccMs >= __DYNO_DUAL.logEveryMs) {
+        __DYNO_DUAL._logAccMs = 0;
+        __DYNO_pushRow();
+      }
+
+      // AUTO STOP dari jarak FRONT PPR
+      if (__DYNO_DUAL._timeStarted && __DYNO_DUAL.distM >= __DYNO_DUAL.targetM) {
+        __DYNO_DUAL.distM = __DYNO_DUAL.targetM;
+        __DYNO_DUAL.running = false;
+        __DYNO_DUAL.armed = false;
+        __DYNO_DUAL.lastEvent = "AUTO_STOP";
+        __DYNO_DUAL.statusText = "AUTO STOP: target jarak tercapai (" + __DYNO_DUAL.targetM + " m).";
+        __DYNO_stopEspPoll();
+      }
+
+    } else {
+      __DYNO_DUAL.speedKmh = Math.max(0, __DYNO_DUAL._vFront) * 3.6;
+      __DYNO_DUAL.distPulseM = (__DYNO_DUAL.totalFrontPulses / pf) * circ;
+    }
+  }
+
+  // ================================
+  // INTERNAL HELPERS
+  // ================================
+  function __DYNO_reset(clearLog) {
+    __DYNO_stopEspPoll();
+
+    __DYNO_DUAL.t0 = 0;
+    __DYNO_DUAL.lastNow = 0;
+    __DYNO_DUAL._logAccMs = 0;
+
+    __DYNO_DUAL.t = 0;
+
+    __DYNO_DUAL.totalFrontPulses = 0;
+    __DYNO_DUAL.totalRearPulses = 0;
+
+    __DYNO_DUAL._lastEspTsMs = 0;
+    __DYNO_DUAL._lastEspPerfMs = performance.now();
+    __DYNO_DUAL._lastFrontTotal = 0;
+    __DYNO_DUAL._lastRearTotal  = 0;
+
+    // time-from-front reset
+    __DYNO_DUAL._timeStarted = false;
+    __DYNO_DUAL._frontRunStartPulses = 0;
+    __DYNO_DUAL._frontStartPulses = 0;
+    __DYNO_DUAL._frontPulseClockMs = performance.now();
+    __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs;
+    __DYNO_DUAL._distM_fromFront = 0;
+
+    // slip reset
+    __DYNO_DUAL._slipStartFrontPulses = 0;
+    __DYNO_DUAL._slipStartRearPulses  = 0;
+    __DYNO_DUAL._slipPeakPct = 0;
+    __DYNO_DUAL._slipFrozen = false;
+    __DYNO_DUAL.slipPct = 0;
+    __DYNO_DUAL.slipOn  = false;
+
+    __DYNO_DUAL._vFront = 0;
+    __DYNO_DUAL._vRear  = 0;
+
+    __DYNO_DUAL._vRearPrev = 0;
+    __DYNO_DUAL._aRear = 0;
+    __DYNO_DUAL._hpOut = 0;
+
+    __DYNO_DUAL._rpmOut = __DYNO_DUAL.rpmStart;
+
+    __DYNO_DUAL.distM = 0;
+    __DYNO_DUAL.distPulseM = 0;
+    __DYNO_DUAL.speedKmh = 0;
+    __DYNO_DUAL.rpm = __DYNO_DUAL.rpmStart;
+    __DYNO_DUAL.tq = 0;
+    __DYNO_DUAL.hp = 0;
+    __DYNO_DUAL.ign = 0;
+    __DYNO_DUAL.afr = 14.7;
+
+    __DYNO_DUAL.maxHP = 0;
+    __DYNO_DUAL.maxTQ = 0;
+
+    if (clearLog) {
+      __DYNO_DUAL.rows = [];
+      __DYNO_DUAL.seq = 0;
+    }
+
+    __DYNO_DUAL.statusText = "READY";
+    __DYNO_DUAL.lastEvent = "READY";
+
+    __DYNO_DUAL.linkOk = false;
+    __DYNO_DUAL.linkText = "DYNO TIDAK TERHUBUNG";
+    __DYNO_emitConn();
+  }
+
+  function __DYNO_pushRow() {
+    __DYNO_DUAL.seq++;
+    __DYNO_DUAL.rows.push({
+      seq: __DYNO_DUAL.seq,
+      t: __DYNO_DUAL.t,
+      rpm: __DYNO_DUAL.rpm,
+      tq: __DYNO_DUAL.tq,
+      hp: __DYNO_DUAL.hp,
+      ign: __DYNO_DUAL.ign,
+      afr: __DYNO_DUAL.afr,
+      dist: __DYNO_DUAL.distM,
+      spd: __DYNO_DUAL.speedKmh
+    });
+
+    if (__DYNO_DUAL.rows.length > 6000) {
+      __DYNO_DUAL.rows.splice(0, __DYNO_DUAL.rows.length - 6000);
+    }
+  }
+
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
 })();
