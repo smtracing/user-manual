@@ -78,7 +78,7 @@ function mapSnapshotFields(sn) {
   out.distM    = Number(sn.distM ?? sn.dist_m ?? sn.dist ?? 0) || 0;
   out.speedKmh = Number(sn.speedKmh ?? sn.speed_kmh ?? sn.speed ?? 0) || 0;
 
-  // raw totals (optional; bagus buat debug)
+  // raw totals (optional; debug)
   out.front_total = Number(sn.front_total ?? sn.frontTotal ?? 0) || 0;
   out.rear_total  = Number(sn.rear_total  ?? sn.rearTotal  ?? 0) || 0;
   out.ts_ms       = Number(sn.ts_ms ?? 0) || 0;
@@ -101,6 +101,24 @@ function mapSnapshotFields(sn) {
 
   // teks status
   out.statusText = String(sn.statusText ?? sn.status ?? "");
+
+  // =======================================================
+  // ✅ SLIP (100% dari firmware)
+  // Firmware disarankan mengirim:
+  //  - slipPct / slip_pct (number)
+  //  - slipOver / slip_over (bool) optional
+  //  - slipStatus / slip_status (string) optional, contoh: "OVER"
+  // =======================================================
+  const slipPct = Number(sn.slipPct ?? sn.slip_pct ?? sn.slip ?? NaN);
+  out.slipPct = isFinite(slipPct) ? slipPct : 0;
+
+  const slipOver = (sn.slipOver ?? sn.slip_over);
+  out.slipOver = (typeof slipOver === "boolean") ? slipOver : (out.slipPct > 500);
+
+  const slipOn = (sn.slipOn ?? sn.slip_on);
+  out.slipOn = (typeof slipOn === "boolean") ? slipOn : (out.slipPct > 5);
+
+  out.slipStatus = String(sn.slipStatus ?? sn.slip_status ?? (out.slipOver ? "OVER" : ""));
 
   return out;
 }
@@ -155,7 +173,6 @@ async function tryGET(paths, timeoutMs = 1200) {
 }
 
 window.DYNO_arm_DUAL = async function (cfg) {
-  // set config dulu (kalau ada)
   try { await window.DYNO_setConfig_DUAL(cfg); } catch {}
 
   const r = await tryGET(["/arm", "/reset", "/ready"], 1400);
