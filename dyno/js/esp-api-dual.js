@@ -1,16 +1,23 @@
 /* =========================================================
    esp-api-dual.js — DYNO AP MODE (192.168.4.1)
-   - CONNECT: GET /status OK, fallback /snapshot OK
-   - SNAPSHOT: ambil RAW (ts_ms, front_total, rear_total, rpm, dll)
-   - CONFIG: kirim dua gaya param (circ/circM, pprf/pprFront, pprr/pprRear)
-   - ARM/RUN/STOP: /arm /run /stop (fallback /reset untuk ARM)
+   - "TERHUBUNG" jika GET /status OK (fallback /snapshot)
+   - API NAMA yang dipakai dyno-road.js:
+       DYNO_getConn_DUAL
+       DYNO_getSnapshot_DUAL
+       DYNO_setConfig_DUAL
+       DYNO_arm_DUAL
+       DYNO_run_DUAL
+       DYNO_stop_DUAL
 ========================================================= */
 
-console.log("%c[ESP-API-DYNO] AP ONLY (192.168.4.1) READY", "color:#4cff8f");
+console.log("%c[ESP-API-DYNO] AP ONLY (192.168.4.1) — firmware timer gated", "color:#4cff8f");
 
-const ESP_HOST = "http://192.168.4.1";
-const ESP_FETCH_TIMEOUT_MS = 1400;
+const ESP_HOST_DYNO = "http://192.168.4.1";
+const ESP_FETCH_TIMEOUT_MS = 1200;
 
+/* =========================
+   FETCH HELPER (timeout + json safe)
+========================= */
 async function fetchJSON(url, opt = {}, timeoutMs = ESP_FETCH_TIMEOUT_MS) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -32,132 +39,135 @@ async function fetchJSON(url, opt = {}, timeoutMs = ESP_FETCH_TIMEOUT_MS) {
   }
 }
 
-function mapSnapshot(sn){
+/* =========================================================
+   CONNECT CHECK
+========================================================= */
+window.DYNO_getConn_DUAL = async function () {
+  try {
+    await fetchJSON(`${ESP_HOST_DYNO}/status`, {}, 900);
+    return { connected: true, ip: "192.168.4.1", via: "/status" };
+  } catch {
+    try {
+      await fetchJSON(`${ESP_HOST_DYNO}/snapshot`, {}, 900);
+      return { connected: true, ip: "192.168.4.1", via: "/snapshot" };
+    } catch {
+      return { connected: false, ip: "192.168.4.1" };
+    }
+  }
+};
+
+/* =========================================================
+   SNAPSHOT MAPPER (robust)
+   - Firmware mengirim camelCase + snake_case.
+========================================================= */
+function mapSnapshotFields(sn) {
   if (!sn) return null;
 
-  // RAW dari firmware (dipertahankan)
-  const out = { ...sn };
+  const out = {};
 
-  // Normalisasi field yang sering dipakai dyno-road
-  out.ts_ms       = Number(sn.ts_ms ?? sn.tsMs ?? 0) || 0;
+  // state
+  out.armed   = !!(sn.armed ?? sn.is_armed ?? sn.arm ?? false);
+  out.running = !!(sn.running ?? sn.is_running ?? sn.run ?? false);
+
+  // gate
+  out.gateWait   = !!(sn.gateWait ?? sn.gate_wait ?? sn.waitGate ?? false);
+  out.gatePulses = Number(sn.gatePulses ?? sn.gate_pulses ?? sn.gateP ?? 0) || 0;
+
+  // time / dist / speed (FIRMWARE)
+  out.t        = Number(sn.t ?? sn.t_s ?? sn.time_s ?? sn.time ?? 0) || 0;
+  out.distM    = Number(sn.distM ?? sn.dist_m ?? sn.dist ?? 0) || 0;
+  out.speedKmh = Number(sn.speedKmh ?? sn.speed_kmh ?? sn.speed ?? 0) || 0;
+
+  // raw totals (optional; bagus buat debug)
   out.front_total = Number(sn.front_total ?? sn.frontTotal ?? 0) || 0;
   out.rear_total  = Number(sn.rear_total  ?? sn.rearTotal  ?? 0) || 0;
+  out.ts_ms       = Number(sn.ts_ms ?? 0) || 0;
 
-  out.rpm         = Number(sn.rpm ?? 0) || 0;
-  out.rpm_valid   = !!(sn.rpm_valid ?? sn.rpmValid ?? false);
+  // rpm / power / ign / afr
+  out.rpm     = Number(sn.rpm ?? 0) || 0;
+  out.tq      = Number(sn.tq ?? sn.torque ?? 0) || 0;
+  out.hp      = Number(sn.hp ?? sn.power ?? 0) || 0;
+  out.ign     = Number(sn.ign ?? sn.ignition ?? 0) || 0;
+  out.afr     = Number(sn.afr ?? 14.7);
 
-  // config normalize
-  out.circM     = Number(sn.circM ?? sn.circ_m ?? sn.circ ?? 0) || 0;
-  out.pprFront  = Number(sn.pprFront ?? sn.ppr_f ?? sn.pprf ?? 0) || 0;
-  out.pprRear   = Number(sn.pprRear  ?? sn.ppr_r ?? sn.pprr ?? 0) || 0;
+  // max
+  out.maxTQ   = Number(sn.maxTQ ?? sn.max_tq ?? 0) || 0;
+  out.maxHP   = Number(sn.maxHP ?? sn.max_hp ?? 0) || 0;
 
-  // state (kalau firmware kirim)
-  out.armed   = !!(sn.armed ?? sn.arm ?? false);
-  out.running = !!(sn.running ?? sn.run ?? false);
-  out.waitGate= !!(sn.waitGate ?? false);
+  // meta
+  out.targetM   = Number(sn.targetM ?? sn.target_m ?? 0) || 0;
+  out.rowsCount = Number(sn.rowsCount ?? sn.rows_count ?? 0) || 0;
+  out.seq       = Number(sn.seq ?? sn.lastSeq ?? 0) || 0;
 
-  // kalau firmware sudah hitung (opsional)
-  out.t        = Number(sn.t ?? sn.time_s ?? 0) || 0;
-  out.distM    = Number(sn.distM ?? sn.dist_m ?? 0) || 0;
-  out.speedKmh = Number(sn.speedKmh ?? sn.speed_kmh ?? 0) || 0;
-
-  out.slipPct  = Number(sn.slipPct ?? sn.slip_pct ?? 0) || 0;
-  out.slipOn   = !!(sn.slipOn ?? sn.slip_on ?? false);
-
+  // teks status
   out.statusText = String(sn.statusText ?? sn.status ?? "");
 
   return out;
 }
 
-/* =========================
-   CONNECT CHECK
-========================= */
-window.DYNO_getConn_DUAL = async function(){
-  try{
-    await fetchJSON(`${ESP_HOST}/status`, {}, 900);
-    return { connected:true, ip:"192.168.4.1", via:"/status" };
-  }catch(e){
-    try{
-      await fetchJSON(`${ESP_HOST}/snapshot`, {}, 900);
-      return { connected:true, ip:"192.168.4.1", via:"/snapshot" };
-    }catch{
-      return { connected:false, ip:"192.168.4.1" };
-    }
-  }
+window.DYNO_getSnapshot_DUAL = async function () {
+  const sn = await fetchJSON(`${ESP_HOST_DYNO}/snapshot`, {}, 1200);
+  return mapSnapshotFields(sn) || sn;
 };
 
-/* =========================
-   SNAPSHOT
-========================= */
-window.DYNO_getSnapshot_DUAL = async function(){
-  const sn = await fetchJSON(`${ESP_HOST}/snapshot`, {}, 1200);
-  return mapSnapshot(sn) || sn;
-};
-
-/* =========================
-   ROWS (optional)
-========================= */
-window.DYNO_getRowsSince_DUAL = async function(sinceSeq = 0){
-  return { seq: Number(sinceSeq)||0, rows: [] };
-};
-
-/* =========================
+/* =========================================================
    CONFIG
-   - kirim dua gaya param agar cocok semua firmware
-========================= */
-window.DYNO_setConfig_DUAL = async function(cfg){
-  const targetM  = Number(cfg?.targetM ?? 200) || 200;
-  const circM    = Number(cfg?.circM ?? 1.85) || 1.85;
-  const weightKg = Number(cfg?.weightKg ?? 120) || 120;
-  const pprFront = Number(cfg?.pprFront ?? 1) || 1;
-  const pprRear  = Number(cfg?.pprRear  ?? 1) || 1;
+   - Firmware menerima: targetM/circM/pprFront/pprRear/weightKg
+   - Kita kirim juga alias: target/circ/pprf/pprr/weight
+========================================================= */
+window.DYNO_setConfig_DUAL = async function (cfg) {
+  const targetM  = String(cfg?.targetM ?? 200);
+  const circM    = String(cfg?.circM ?? 1.85);
+  const weightKg = String(cfg?.weightKg ?? 120);
+  const pprFront = String(cfg?.pprFront ?? 1);
+  const pprRear  = String(cfg?.pprRear  ?? 1);
 
-  const q = new URLSearchParams({
-    // gaya “baru” (yang web kamu pakai)
-    targetM:  String(targetM),
-    circM:    String(circM),
-    weightKg: String(weightKg),
-    pprFront: String(pprFront),
-    pprRear:  String(pprRear),
+  const q =
+    `targetM=${encodeURIComponent(targetM)}` +
+    `&target=${encodeURIComponent(targetM)}` +
+    `&circM=${encodeURIComponent(circM)}` +
+    `&circ=${encodeURIComponent(circM)}` +
+    `&pprFront=${encodeURIComponent(pprFront)}` +
+    `&pprf=${encodeURIComponent(pprFront)}` +
+    `&pprRear=${encodeURIComponent(pprRear)}` +
+    `&pprr=${encodeURIComponent(pprRear)}` +
+    `&weightKg=${encodeURIComponent(weightKg)}` +
+    `&weight=${encodeURIComponent(weightKg)}`;
 
-    // gaya “lama” (firmware kamu sebelumnya)
-    circ: String(circM),
-    pprf: String(pprFront),
-    pprr: String(pprRear),
-  }).toString();
-
-  try{
-    return await fetchJSON(`${ESP_HOST}/config?${q}`, {}, 1400);
-  }catch{
-    return { ok:false, reason:"NO_CONFIG_ENDPOINT" };
+  try {
+    return await fetchJSON(`${ESP_HOST_DYNO}/config?${q}`, {}, 1200);
+  } catch {
+    return { ok: false, reason: "NO_CONFIG_ENDPOINT" };
   }
 };
 
-async function tryGET(paths, timeoutMs = 1400){
-  for (const p of paths){
-    try{
-      const j = await fetchJSON(`${ESP_HOST}${p}`, {}, timeoutMs);
-      return { ok:true, path:p, j };
-    }catch{}
+/* =========================================================
+   ARM / RUN / STOP
+========================================================= */
+async function tryGET(paths, timeoutMs = 1200) {
+  for (const p of paths) {
+    try {
+      const j = await fetchJSON(`${ESP_HOST_DYNO}${p}`, {}, timeoutMs);
+      return { ok: true, j, path: p };
+    } catch {}
   }
-  return { ok:false };
+  return { ok: false };
 }
 
-/* =========================
-   ARM / RUN / STOP
-========================= */
-window.DYNO_arm_DUAL = async function(cfg){
-  try{ await window.DYNO_setConfig_DUAL(cfg); }catch{}
-  const r = await tryGET(["/arm", "/reset"], 1400);
-  return r.ok ? { ok:true, ...r } : { ok:false, reason:"NO_ARM_ENDPOINT" };
+window.DYNO_arm_DUAL = async function (cfg) {
+  // set config dulu (kalau ada)
+  try { await window.DYNO_setConfig_DUAL(cfg); } catch {}
+
+  const r = await tryGET(["/arm", "/reset", "/ready"], 1400);
+  return r.ok ? { ok: true, ...r } : { ok: false, reason: "NO_ARM_ENDPOINT" };
 };
 
-window.DYNO_run_DUAL = async function(){
+window.DYNO_run_DUAL = async function () {
   const r = await tryGET(["/run", "/start"], 1400);
-  return r.ok ? { ok:true, ...r } : { ok:false, reason:"NO_RUN_ENDPOINT" };
+  return r.ok ? { ok: true, ...r } : { ok: false, reason: "NO_RUN_ENDPOINT" };
 };
 
-window.DYNO_stop_DUAL = async function(){
+window.DYNO_stop_DUAL = async function (_reason = "STOP") {
   const r = await tryGET(["/stop", "/halt"], 1400);
-  return r.ok ? { ok:true, ...r } : { ok:false, reason:"NO_STOP_ENDPOINT" };
+  return r.ok ? { ok: true, ...r } : { ok: false, reason: "NO_STOP_ENDPOINT" };
 };
