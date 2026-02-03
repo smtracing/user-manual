@@ -1,23 +1,32 @@
-console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP32 SETELAH 1 PUTARAN)");
+/* =========================================================
+   dyno-road.js — WEB UI (READ FROM FIRMWARE SNAPSHOT)
+   - UI TIDAK DIUBAH
+   - TIME/DIST/SPEED diambil dari FIRMWARE (bukan dihitung web)
+   - HP/TQ/RPM juga diambil dari FIRMWARE snapshot
+   - ✅ SLIP: 100% dari FIRMWARE (web hanya tampilkan)
+   - START GATE: web hanya menampilkan status gate_wait dari firmware
+========================================================= */
+
+console.log("✅ dyno-road.js dimuat (FIRMWARE SNAPSHOT MASTER)");
 
 (function(){
   const UI_POLL_MS     = 16;
+  const MAX_TABLE_ROWS = 800;
 
+  // RPM range (untuk axis)
   const FIXED_RPM_START = 2000;
   const FIXED_RPM_END   = 20000;
 
-  const MAX_TABLE_ROWS = 800;
-
   // colors
-  const AFR_COLOR  = "rgb(255,0,170)"; // pink
+  const AFR_COLOR  = "rgb(255,0,170)";
   const IGN_COLOR  = "rgb(255,204,0)";
-  const SLIP_COLOR = "rgb(255,70,70)"; // merah slip
+  const SLIP_COLOR = "rgb(255,70,70)";
   const TQ_COLOR   = "rgb(0,255,102)";
   const HP_COLOR   = "rgb(52,152,219)";
 
-  // slip threshold (overlay only)
-  const SLIP_ON_PCT   = 5;     // slip ON jika > 5%
-  const SLIP_OVER_PCT = 500;   // OVER
+  // slip threshold (display logic)
+  const SLIP_ON_PCT   = 5;
+  const SLIP_OVER_PCT = 500;
 
   const DYNO = {
     armed:false,
@@ -32,41 +41,36 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
     rpmStart: FIXED_RPM_START,
     rpmEnd:   FIXED_RPM_END,
 
-    // live dari FIRMWARE
-    t:0,            // detik (float)
-    distM:0,        // meter (float)
-    speedKmh:0,     // km/h (float)
+    // live from firmware
+    t:0,
+    distM:0,
+    speedKmh:0,
     rpm:0,
-
-    // optional dari snapshot (kalau firmware kirim), default 0
     tq:0,
     hp:0,
     ign:0,
     afr:14.7,
 
-    // SLIP overlay only (boleh dihitung di firmware atau web; di sini pakai snapshot jika ada)
+    // ✅ slip from firmware only
     slipPct:0,
     slipOn:false,
+    slipOver:false,
 
     maxHP:0,
     maxTQ:0,
 
+    // raw snapshot cache
+    lastSnap:null,
+
     rows:[],
     timer:null,
+    polling:false,
 
     statusBase:"READY",
     statusTimer:null,
-    polling:false,
 
     // canvas
-    c:null, ctx:null, W:0,H:0,
-
-    // cache snapshot
-    lastSnap:null,
-
-    // gate state dari firmware
-    waitGate:false,
-    gatePulses:1
+    c:null, ctx:null, W:0,H:0
   };
 
   // ==========================
@@ -75,6 +79,7 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
   window.DYNO_init = function(){
     DYNO.c = document.getElementById("dynoCanvas");
     if (!DYNO.c) return;
+
     DYNO.ctx = DYNO.c.getContext("2d");
 
     window.addEventListener("resize", () => {
@@ -105,7 +110,7 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
     ensureStatusProgressEl();
     setStatus("ARMED: siap RUN. Target = " + DYNO.targetM + " m");
 
-    // Kirim config ke ESP32 (wajib agar PPR sesuai input web)
+    // kirim config + arm ke firmware (opsional)
     if (typeof window.DYNO_setConfig_DUAL === "function") {
       try{
         await window.DYNO_setConfig_DUAL({
@@ -120,7 +125,6 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
       }catch(e){}
     }
 
-    // Arm di ESP32 (opsional, tapi disarankan)
     if (typeof window.DYNO_arm_DUAL === "function") {
       try{
         await window.DYNO_arm_DUAL({
@@ -135,7 +139,7 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
       }catch(e){}
     }
 
-    // ambil snapshot awal
+    // ambil snapshot 1x untuk sinkron UI
     await pollFromESP(true);
 
     DYNO_draw();
@@ -152,13 +156,13 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
 
     DYNO.running = true;
 
-    // reset data run
-    DYNO.rows = [];
-    const tb = document.getElementById("d_tbody");
-    if (tb) tb.innerHTML = "";
-    setText("d_logInfo", "0 rows");
+    updateState("RUN");
+    ensureStatusProgressEl();
+    setStatus("RUN: firmware akan mulai timer setelah 1 putaran roda depan.");
 
-    // Kirim config lagi (biar 100% sesuai input terakhir)
+    startStatusAnim();
+
+    // kirim config + run ke firmware (opsional)
     if (typeof window.DYNO_setConfig_DUAL === "function") {
       try{
         await window.DYNO_setConfig_DUAL({
@@ -173,21 +177,12 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
       }catch(e){}
     }
 
-    // RUN di ESP32 (wajib agar TIMER START dari firmware setelah 1 putaran)
     if (typeof window.DYNO_run_DUAL === "function") {
       try{ await window.DYNO_run_DUAL(); }catch(e){}
     }
 
-    updateState("RUN");
-    ensureStatusProgressEl();
-    setStatus("RUN: menunggu START dari firmware (1 putaran roda depan)...");
-    startStatusAnim();
-
-    // poll rutin
     if (DYNO.timer) clearInterval(DYNO.timer);
-    DYNO.timer = setInterval(() => {
-      pollFromESP(false);
-    }, UI_POLL_MS);
+    DYNO.timer = setInterval(() => pollFromESP(false), UI_POLL_MS);
 
     updateStatusProgress();
     DYNO_draw();
@@ -198,6 +193,7 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
       clearInterval(DYNO.timer);
       DYNO.timer = null;
     }
+
     DYNO.running = false;
     DYNO.armed = false;
 
@@ -219,6 +215,7 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
       return;
     }
 
+    // slip tidak masuk CSV (overlay only)
     const head = ["t_s","rpm","tq_Nm","hp","ign_deg","afr","dist_m","speed_kmh"];
     const lines = [head.join(",")];
 
@@ -247,72 +244,91 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
   };
 
   // ==========================
-  // POLL DATA (FIRMWARE-SOURCE OF TRUTH)
+  // POLL DATA (FIRMWARE SNAPSHOT MASTER)
   // ==========================
   async function pollFromESP(forceOnce){
     if (DYNO.polling && !forceOnce) return;
     DYNO.polling = true;
 
-    try {
+    try{
       if (typeof window.DYNO_getSnapshot_DUAL !== "function") return;
 
       const snap = await window.DYNO_getSnapshot_DUAL();
       if (!snap) return;
       DYNO.lastSnap = snap;
 
-      // ===== AMBIL DARI FIRMWARE =====
-      // waktu (detik) AKURAT: dihitung firmware mulai setelah 1 putaran (pprFront pulses)
-      if (isFinite(Number(snap.t)))        DYNO.t        = Number(snap.t);
-      if (isFinite(Number(snap.distM)))    DYNO.distM    = Number(snap.distM);
-      if (isFinite(Number(snap.speedKmh))) DYNO.speedKmh = Number(snap.speedKmh);
+      // ---- STATE dari firmware
+      const fwArmed   = !!snap.armed;
+      const fwRunning = !!snap.running;
+      const gateWait  = !!(snap.gate_wait ?? snap.gateWait);
 
-      // rpm raw (boleh 0 jika tidak ada pulse)
-      DYNO.rpm = isFinite(Number(snap.rpm)) ? Number(snap.rpm) : 0;
+      DYNO.armed   = fwArmed;
+      DYNO.running = fwRunning;
 
-      // status gate dari firmware
-      DYNO.waitGate   = !!(snap.gate_wait ?? snap.waitGate ?? false);
-      DYNO.gatePulses = Math.max(1, Number(snap.gate_pulses ?? snap.gatePulses ?? DYNO.pprFront) || 1);
+      // ---- CONFIG echo (kalau firmware mengirim)
+      if (isFinite(Number(snap.targetM)))  DYNO.targetM  = Math.max(1, Number(snap.targetM));
+      if (isFinite(Number(snap.circM)))    DYNO.circM    = Number(snap.circM);
+      if (isFinite(Number(snap.pprFront))) DYNO.pprFront = Math.max(1, Math.round(Number(snap.pprFront)));
+      if (isFinite(Number(snap.pprRear)))  DYNO.pprRear  = Math.max(1, Math.round(Number(snap.pprRear)));
+      if (isFinite(Number(snap.weightKg))) DYNO.weightKg = Math.max(1, Math.round(Number(snap.weightKg)));
+
+      // ---- LIVE computed FROM FIRMWARE (inti akurasi)
+      const t_s      = Number(snap.t_s ?? snap.t ?? 0);
+      const dist_m   = Number(snap.dist_m ?? snap.distM ?? 0);
+      const speed_km = Number(snap.speed_kmh ?? snap.speedKmh ?? 0);
+
+      DYNO.t        = isFinite(t_s)    ? Math.max(0, t_s) : 0;
+      DYNO.distM    = isFinite(dist_m) ? Math.max(0, dist_m) : 0;
+      DYNO.speedKmh = isFinite(speed_km) ? Math.max(0, speed_km) : 0;
+
+      // ---- RPM/HP/TQ from firmware
+      DYNO.rpm = Number(snap.rpm || 0) || 0;
+      DYNO.tq  = Number(snap.tq  || snap.torque || 0) || 0;
+      DYNO.hp  = Number(snap.hp  || snap.power  || 0) || 0;
 
       // optional
-      DYNO.tq  = isFinite(Number(snap.tq))  ? Number(snap.tq)  : (DYNO.tq||0);
-      DYNO.hp  = isFinite(Number(snap.hp))  ? Number(snap.hp)  : (DYNO.hp||0);
-      DYNO.ign = isFinite(Number(snap.ign)) ? Number(snap.ign) : (DYNO.ign||0);
+      DYNO.ign = Number(snap.ign || snap.ignition || 0) || 0;
       DYNO.afr = isFinite(Number(snap.afr)) ? Number(snap.afr) : DYNO.afr;
 
-      // slip (boleh dari firmware, kalau tidak ada fallback hitung dari raw totals)
-      if (isFinite(Number(snap.slipPct))) {
-        DYNO.slipPct = Number(snap.slipPct);
-      } else if (isFinite(Number(snap.front_total)) && isFinite(Number(snap.rear_total))) {
-        // fallback hitung slip pakai total (overlay only)
-        const ft = Number(snap.front_total)||0;
-        const rt = Number(snap.rear_total)||0;
-        const frontDistTotal = (ft / Math.max(1, DYNO.pprFront)) * DYNO.circM;
-        const rearDistTotal  = (rt / Math.max(1, DYNO.pprRear )) * DYNO.circM;
-        if (frontDistTotal > 1e-6) DYNO.slipPct = ((rearDistTotal - frontDistTotal) / frontDistTotal) * 100;
-        else DYNO.slipPct = 0;
-      }
+      // max from firmware jika tersedia, else track dari web
+      const fwMaxHP = Number(snap.maxHP);
+      const fwMaxTQ = Number(snap.maxTQ);
+      if (isFinite(fwMaxHP)) DYNO.maxHP = Math.max(0, fwMaxHP);
+      else if (isFinite(DYNO.hp)) DYNO.maxHP = Math.max(DYNO.maxHP || 0, DYNO.hp || 0);
 
-      DYNO.slipOn = (isFinite(DYNO.slipPct) ? (DYNO.slipPct > SLIP_ON_PCT) : false);
+      if (isFinite(fwMaxTQ)) DYNO.maxTQ = Math.max(0, fwMaxTQ);
+      else if (isFinite(DYNO.tq)) DYNO.maxTQ = Math.max(DYNO.maxTQ || 0, DYNO.tq || 0);
 
-      // max tracking
-      if (isFinite(DYNO.hp)) DYNO.maxHP = Math.max(DYNO.maxHP || 0, DYNO.hp || 0);
-      if (isFinite(DYNO.tq)) DYNO.maxTQ = Math.max(DYNO.maxTQ || 0, DYNO.tq || 0);
+      // =======================================================
+      // ✅ SLIP 100% dari firmware (web tidak hitung)
+      // firmware kirim: slipPct/slip_pct, opsional slipOver/slipStatus
+      // =======================================================
+      const slipPct = Number(snap.slipPct ?? snap.slip_pct ?? snap.slip ?? NaN);
+      DYNO.slipPct = isFinite(slipPct) ? slipPct : 0;
 
-      // status text
-      if (snap.statusText) {
-        DYNO.statusBase = String(snap.statusText);
-        renderStatus();
+      const slipOver = (snap.slipOver ?? snap.slip_over);
+      DYNO.slipOver = (typeof slipOver === "boolean") ? slipOver : (DYNO.slipPct > SLIP_OVER_PCT);
+
+      const slipOn = (snap.slipOn ?? snap.slip_on);
+      DYNO.slipOn = (typeof slipOn === "boolean") ? slipOn : (DYNO.slipPct > SLIP_ON_PCT);
+
+      // ---- STATUS text
+      const st = String(snap.statusText || "").trim();
+      if (DYNO.running && gateWait){
+        updateState("RUN (WAIT 1 REV)");
+        setStatus("RUN: tunggu 1 putaran roda depan (" + String(snap.gate_pulses ?? snap.gatePulses ?? DYNO.pprFront) + " pulsa)...");
+      } else if (DYNO.running){
+        updateState("RUNNING");
+        if (st) setStatus(st);
+        else setStatus("RUNNING...");
+      } else if (DYNO.armed){
+        updateState("ARMED");
       } else {
-        // minimal status
-        if (DYNO.running) {
-          if (DYNO.waitGate) setStatus("RUN: tunggu 1 putaran roda depan (" + DYNO.gatePulses + " pulsa)...");
-          else setStatus("RUNNING... (timer dari firmware)");
-        }
+        if (st) setStatus(st);
       }
 
-      // ===== LOG ROW (WEB GENERATED, tapi waktu/dist dari firmware) =====
-      // hanya saat sudah lewat gate (t>0 atau gate_wait=false)
-      if (DYNO.running && !DYNO.waitGate) {
+      // ---- LOG ROW ke tabel (hanya saat firmware sudah mulai t berjalan)
+      if (DYNO.running && !gateWait){
         const row = {
           t: DYNO.t,
           rpm: DYNO.rpm,
@@ -324,34 +340,30 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
           spd: DYNO.speedKmh
         };
 
-        // cegah spam: hanya tambah jika dist naik atau t naik
         const last = DYNO.rows.length ? DYNO.rows[DYNO.rows.length - 1] : null;
-        const okAdd = !last || (row.dist >= (last.dist + 0.001)) || (row.t >= (last.t + 0.010));
-        if (okAdd) {
+        const changed = !last ||
+          (Math.abs((row.t||0) - (last.t||0)) > 0.005) ||
+          (Math.abs((row.dist||0) - (last.dist||0)) > 0.01);
+
+        if (changed){
           DYNO.rows.push(row);
           appendRowFast(row);
         }
 
-        // auto stop dari web (tetap) saat target tercapai
-        if (DYNO.distM >= Math.max(1, DYNO.targetM)) {
-          setStatus("AUTO STOP: target tercapai (" + DYNO.targetM + " m)");
+        if (!fwRunning){
+          setStatus("AUTO STOP (firmware).");
           window.DYNO_stop();
         }
       }
 
+      updateInfoBox();
       updateLiveUI();
       updateStatusProgress();
       DYNO_draw();
 
-      // auto stop jika firmware bilang stop
-      if (snap.running === false && DYNO.running) {
-        setStatus(snap.statusText || "STOP dari firmware.");
-        window.DYNO_stop();
-      }
-
-    } catch (e) {
+    }catch(e){
       // ignore
-    } finally {
+    }finally{
       DYNO.polling = false;
     }
   }
@@ -537,9 +549,11 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
       ctx.fillText(String(Math.round(m)), x, PAD_T + plotH + 8);
     }
 
-    // info text when waiting gate
-    if (DYNO.running && DYNO.waitGate){
-      drawInfoText(ctx, W, H, "WAIT: " + DYNO.gatePulses + " pulsa (1 putaran) ...");
+    // info text
+    const gateWait = !!(DYNO.lastSnap && (DYNO.lastSnap.gate_wait ?? DYNO.lastSnap.gateWait));
+    if (DYNO.running && gateWait){
+      const gp = DYNO.lastSnap ? (DYNO.lastSnap.gate_pulses ?? DYNO.lastSnap.gatePulses ?? DYNO.pprFront) : DYNO.pprFront;
+      drawInfoText(ctx, W, H, "WAIT: " + String(gp) + " pulsa (1 putaran) ...");
       drawOverlayInsideGraph(ctx, PAD_L, PAD_T, plotW, plotH);
       return;
     }
@@ -776,7 +790,7 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
 
     let slipText = "SLIP : --";
     if (isFinite(DYNO.slipPct)) {
-      if (DYNO.slipPct > SLIP_OVER_PCT) slipText = "SLIP : OVER";
+      if (DYNO.slipOver || DYNO.slipPct > SLIP_OVER_PCT) slipText = "SLIP : OVER";
       else slipText = "SLIP : " + String(Math.round(DYNO.slipPct || 0)) + "%";
     }
 
@@ -820,7 +834,8 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
     ctx.fillStyle = AFR_COLOR;
     ctx.fillText(afrText, rightX, by + 28);
 
-    ctx.fillStyle = (DYNO.slipPct > SLIP_OVER_PCT) ? SLIP_COLOR : (DYNO.slipOn ? SLIP_COLOR : "rgba(200,200,200,0.65)");
+    const slipIsOver = DYNO.slipOver || (DYNO.slipPct > SLIP_OVER_PCT);
+    ctx.fillStyle = slipIsOver ? SLIP_COLOR : (DYNO.slipOn ? SLIP_COLOR : "rgba(200,200,200,0.65)");
     ctx.fillText(slipText, rightX, by + 46);
 
     ctx.restore();
@@ -860,15 +875,14 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
   }
 
   function readInputs(){
-    DYNO.targetM  = clamp(Math.round(num("d_targetM", 200)), 10, 5000);
-    DYNO.circM    = num("d_circM", 1.85);
-    DYNO.weightKg = clamp(Math.round(num("d_weightKg", 120)), 30, 500);
+    DYNO.targetM   = clamp(Math.round(num("d_targetM", 200)), 10, 5000);
+    DYNO.circM     = num("d_circM", 1.85);
+    DYNO.weightKg  = clamp(Math.round(num("d_weightKg", 120)), 30, 500);
+    DYNO.pprFront  = Math.max(1, Math.round(num("d_pprFront", 1)));
+    DYNO.pprRear   = Math.max(1, Math.round(num("d_pprRear", 1)));
 
-    DYNO.pprFront = Math.max(1, Math.round(num("d_pprFront", 1)));
-    DYNO.pprRear  = Math.max(1, Math.round(num("d_pprRear", 1)));
-
-    DYNO.rpmStart = FIXED_RPM_START;
-    DYNO.rpmEnd   = FIXED_RPM_END;
+    DYNO.rpmStart  = FIXED_RPM_START;
+    DYNO.rpmEnd    = FIXED_RPM_END;
   }
 
   function updateInfoBox(){
@@ -895,12 +909,10 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
 
     DYNO.slipPct = 0;
     DYNO.slipOn  = false;
+    DYNO.slipOver = false;
 
     DYNO.maxHP = 0;
     DYNO.maxTQ = 0;
-
-    DYNO.waitGate = false;
-    DYNO.gatePulses = Math.max(1, DYNO.pprFront|0);
 
     if (clearTable){
       DYNO.rows = [];
@@ -1068,8 +1080,9 @@ console.log("✅ dyno-road.js dimuat (FIRMWARE START GATE — TIMER MULAI DI ESP
     const shine= document.getElementById("d_statusProgShine");
     if (!prog || !bar || !shine) return;
 
-    // progress hanya jalan saat running DAN gate sudah lewat
-    if (DYNO.running && !DYNO.waitGate && !forceStop){
+    const gateWait = !!(DYNO.lastSnap && (DYNO.lastSnap.gate_wait ?? DYNO.lastSnap.gateWait));
+
+    if (DYNO.running && !gateWait && !forceStop){
       prog.style.opacity = "1";
       const p = clamp(DYNO.distM / Math.max(1, DYNO.targetM), 0, 1);
       bar.style.width = (p * 100).toFixed(1) + "%";
