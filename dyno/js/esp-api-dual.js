@@ -1,24 +1,18 @@
 /* =========================================================
-   esp-api-dual.js — DYNO-ROAD ONLY (REAL ESP32 AP + AUTO LINK)
-   - AUTO CONNECT: polling jalan otomatis saat file dimuat (tanpa ARM/RUN)
-   - Endpoint:
-       GET http://192.168.4.1/snapshot
-       -> { ts_ms, front_total, rear_total, rpm, rpm_valid, espReady, circ_m, ppr_f, ppr_r }
+   esp-api-dual.js — DYNO-ROAD ONLY (REAL ESP32 AP + CDI-LIKE LINK)
+   - AP MODE ONLY: host ESP32 = http://192.168.4.1
+   - Endpoint DYNO:
+       GET  /snapshot  -> { ts_ms, front_total, rear_total, rpm, rpm_valid, espReady, circ_m, ppr_f, ppr_r }
 
-   - Interface tetap (dipakai dyno-road.js):
-       DYNO_setConfig_DUAL, DYNO_arm_DUAL, DYNO_run_DUAL, DYNO_stop_DUAL
-       DYNO_getSnapshot_DUAL, DYNO_getRowsSince_DUAL
+   - “AHTIP / TERHUBUNG” model CDI:
+       TERHUBUNG  = fetch /snapshot sukses
+       TIDAK      = fetch gagal (dibuffer biar tidak flicker)
 
-   - TIME/DIST dari front_total:
-       START time setelah 1 putaran roda depan sejak RUN
-       STOP saat dist (dari front_total) mencapai targetM
-
-   - SLIP peak + freeze
-
-   AFR: HOLD 14.7
+   Penting:
+   - Jika UI dibuka dari HTTPS, fetch ke http://192.168.4.1 bisa diblok browser (mixed content).
 ========================================================= */
 
-console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "color:#4cff8f");
+console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + CDI-LIKE LINK", "color:#4cff8f");
 
 (function () {
 
@@ -27,8 +21,14 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
   // =========================
   const ESP_BASE_URL   = "http://192.168.4.1";
   const ESP_SNAPSHOT   = "/snapshot";
-  const ESP_POLL_MS    = 120;    // 80..150ms aman
-  const ESP_TIMEOUT_MS = 500;    // timeout fetch
+
+  // Polling
+  const ESP_POLL_MS    = 80;     // 50..120ms aman
+  const ESP_TIMEOUT_MS = 900;    // mirip CDI style (cepat, responsif)
+
+  // Link debounce (anti flicker)
+  const LINK_FAIL_TO_OFF = 2;    // butuh gagal 2x baru OFF
+  const LINK_OK_TO_ON    = 1;    // cukup sukses 1x langsung ON
 
   const WATT_PER_HP = 745.699872;
 
@@ -39,13 +39,33 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
   const ACC_SMOOTH_ALPHA   = 0.25;
 
   // =========================
+  // FETCH HELPER (CDI STYLE)
+  // =========================
+  async function fetchJSON(url, opt = {}, timeoutMs = ESP_TIMEOUT_MS) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(url, {
+        cache: "no-store",
+        ...opt,
+        signal: ctrl.signal
+      });
+      if (!res.ok) throw new Error("HTTP_" + res.status);
+
+      const txt = await res.text();
+      try { return JSON.parse(txt); }
+      catch { return { _raw: txt }; }
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  // =========================
   // SLIP (peak + freeze)
   // =========================
   const SLIP_FREEZE_DIST_M = 10;
   const SLIP_FREEZE_RPM    = 5000;
-
-  // Link fail policy
-  const LINK_FAIL_TO_OFFLINE = 2; // gagal berturut-turut -> offline
 
   const __DYNO_DUAL = {
     armed: false,
@@ -60,6 +80,7 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
     pprRear:  1,
     weightKg: 120,
 
+    // ratio fallback rpm (kalau rpm_valid = 0)
     ratio: 9.0,
 
     rpmStart: 2000,
@@ -76,15 +97,17 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
 
     // runtime
     t0: 0,
+    lastNow: 0,
 
     // raw totals (from ESP)
     totalFrontPulses: 0,
     totalRearPulses:  0,
 
-    // for dt
+    // for dt from ESP packets
+    _lastEspTsMs: 0,
     _lastEspPerfMs: 0,
-    _lastFrontTotal: null, // null = belum baseline
-    _lastRearTotal:  null,
+    _lastFrontTotal: 0,
+    _lastRearTotal: 0,
 
     // TIME FROM FRONT PPR
     _timeStarted: false,
@@ -94,7 +117,7 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
     _t0PulseMs: 0,
     _distM_fromFront: 0,
 
-    // SLIP PEAK
+    // SLIP (TOTAL/PEAK)
     _slipStartFrontPulses: 0,
     _slipStartRearPulses: 0,
     _slipPeakPct: 0,
@@ -103,7 +126,7 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
     slipPct: 0,
     slipOn: false,
 
-    // SPEED
+    // SPEED live (front/rear)
     _vFront: 0,
     _vRear:  0,
 
@@ -135,16 +158,17 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
     statusText: "READY",
     lastEvent: "",
 
-    // koneksi indicator (untuk kotak status kecil)
+    // koneksi indicator (kotak status kecil)
     linkOk: false,
     linkText: "DYNO TIDAK TERHUBUNG",
     _espPollTimer: null,
     _espInFlight: false,
-    _espFailCount: 0
+    _espFailCount: 0,
+    _espOkCount: 0
   };
 
   // ================================
-  // PUBLIC API
+  // PUBLIC API (dipakai dyno-road.js)
   // ================================
   window.DYNO_setConfig_DUAL = function(cfg = {}) {
     if (typeof cfg !== "object") return { ok: false };
@@ -157,6 +181,7 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
 
     if (isFinite(cfg.circM)) __DYNO_DUAL.circM = Math.max(0.2, parseFloat(cfg.circM) || __DYNO_DUAL.circM);
 
+    // backward compat
     if (isFinite(cfg.ppr) && !isFinite(cfg.pprRear)) cfg.pprRear = cfg.ppr;
     if (isFinite(cfg.ppr) && !isFinite(cfg.pprFront)) cfg.pprFront = cfg.ppr;
 
@@ -180,13 +205,11 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
     if (cfg) window.DYNO_setConfig_DUAL(cfg);
 
     __DYNO_reset(true);
-
     __DYNO_DUAL.armed = true;
     __DYNO_DUAL.running = false;
     __DYNO_DUAL.statusText = "ARMED: siap RUN. Target = " + __DYNO_DUAL.targetM + " m";
     __DYNO_DUAL.lastEvent = "ARMED";
 
-    // polling sudah auto jalan; tapi aman juga kalau dipanggil lagi
     __DYNO_startEspPoll();
     return { ok: true };
   };
@@ -202,8 +225,8 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
     __DYNO_DUAL.running = true;
 
     __DYNO_DUAL.t0 = performance.now();
+    __DYNO_DUAL.lastNow = __DYNO_DUAL.t0;
 
-    // gate start time (front ppr)
     __DYNO_DUAL._timeStarted = false;
     __DYNO_DUAL.t = 0;
     __DYNO_DUAL.distM = 0;
@@ -214,7 +237,6 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
     __DYNO_DUAL._frontPulseClockMs = performance.now();
     __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs;
 
-    // slip reset
     __DYNO_DUAL._slipStartFrontPulses = __DYNO_DUAL.totalFrontPulses;
     __DYNO_DUAL._slipStartRearPulses  = __DYNO_DUAL.totalRearPulses;
     __DYNO_DUAL._slipPeakPct = 0;
@@ -248,8 +270,7 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
       __DYNO_DUAL.statusText = "STOP. Data tersimpan (belum dihapus).";
     }
 
-    // ✅ jangan matikan polling: status koneksi harus selalu hidup
-    __DYNO_startEspPoll();
+    __DYNO_stopEspPoll();
     return { ok: true };
   };
 
@@ -300,13 +321,14 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
   };
 
   // ================================
-  // ESP POLLING (AUTO)
+  // ESP POLLING (CDI-LIKE)
   // ================================
   function __DYNO_startEspPoll(){
     if (__DYNO_DUAL._espPollTimer) return;
 
     __DYNO_DUAL._lastEspPerfMs = performance.now();
     __DYNO_DUAL._espFailCount = 0;
+    __DYNO_DUAL._espOkCount = 0;
 
     __DYNO_DUAL._espPollTimer = setInterval(() => {
       __DYNO_pollESP();
@@ -315,38 +337,43 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
     __DYNO_pollESP();
   }
 
+  function __DYNO_stopEspPoll(){
+    if (__DYNO_DUAL._espPollTimer){
+      clearInterval(__DYNO_DUAL._espPollTimer);
+      __DYNO_DUAL._espPollTimer = null;
+    }
+    __DYNO_DUAL._espInFlight = false;
+  }
+
   async function __DYNO_pollESP(){
     if (__DYNO_DUAL._espInFlight) return;
     __DYNO_DUAL._espInFlight = true;
 
     const url = ESP_BASE_URL + ESP_SNAPSHOT;
 
-    let tmo = null;
     try{
-      const ctrl = new AbortController();
-      tmo = setTimeout(() => ctrl.abort(), ESP_TIMEOUT_MS);
+      // CDI behavior: fetch + timeout + json-safe
+      const j = await fetchJSON(url, {}, ESP_TIMEOUT_MS);
 
-      const res = await fetch(url, { method:"GET", cache:"no-store", signal: ctrl.signal });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-
-      const j = await res.json();
-
+      // sukses fetch = TERHUBUNG (tanpa syarat flag)
+      __DYNO_DUAL._espOkCount++;
       __DYNO_DUAL._espFailCount = 0;
-      __DYNO_setLink(true);
+      if (__DYNO_DUAL._espOkCount >= LINK_OK_TO_ON) __DYNO_setLink(true);
 
       __DYNO_applyEspSnapshot(j);
     }catch(e){
       __DYNO_DUAL._espFailCount++;
-      if (__DYNO_DUAL._espFailCount >= LINK_FAIL_TO_OFFLINE) {
-        __DYNO_setLink(false);
-      }
-      // jangan reset data, biar UI tetap tampil last-known
+      __DYNO_DUAL._espOkCount = 0;
+
+      // gagal beberapa kali baru OFF
+      if (__DYNO_DUAL._espFailCount >= LINK_FAIL_TO_OFF) __DYNO_setLink(false);
+
+      // jangan reset data terakhir (biar UI tetap tampil last-known)
     }finally{
-      if (tmo) clearTimeout(tmo);
       __DYNO_DUAL._espInFlight = false;
     }
 
-    // safety timeout kalau RUN lama (walau konek/putus)
+    // safety timeout
     if (__DYNO_DUAL.running){
       const tSinceRun = (performance.now() - __DYNO_DUAL.t0) / 1000;
       if (tSinceRun >= 60) {
@@ -354,19 +381,20 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
         __DYNO_DUAL.armed = false;
         __DYNO_DUAL.lastEvent = "TIMEOUT";
         __DYNO_DUAL.statusText = "AUTO STOP: TIMEOUT.";
+        __DYNO_stopEspPoll();
       }
     }
   }
 
   function __DYNO_setLink(isOk){
-    const next = !!isOk;
-    if (next === __DYNO_DUAL.linkOk) return;
-
-    __DYNO_DUAL.linkOk = next;
-    __DYNO_DUAL.linkText = next ? "DYNO TERHUBUNG" : "DYNO TIDAK TERHUBUNG";
+    if (!!isOk === __DYNO_DUAL.linkOk) return;
+    __DYNO_DUAL.linkOk = !!isOk;
+    __DYNO_DUAL.linkText = __DYNO_DUAL.linkOk ? "DYNO TERHUBUNG" : "DYNO TIDAK TERHUBUNG";
   }
 
   function __DYNO_applyEspSnapshot(j){
+    // Ambil mentah
+    const tsMs       = isFinite(j.ts_ms) ? +j.ts_ms : 0;
     const frontTotal = isFinite(j.front_total) ? Math.max(0, Math.floor(+j.front_total)) : __DYNO_DUAL.totalFrontPulses;
     const rearTotal  = isFinite(j.rear_total)  ? Math.max(0, Math.floor(+j.rear_total))  : __DYNO_DUAL.totalRearPulses;
 
@@ -381,30 +409,12 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
     const lastPerf = __DYNO_DUAL._lastEspPerfMs || nowPerf;
     let dtSec = (nowPerf - lastPerf) / 1000;
     if (!isFinite(dtSec) || dtSec <= 0) dtSec = ESP_POLL_MS / 1000;
+
     __DYNO_DUAL._lastEspPerfMs = nowPerf;
+    __DYNO_DUAL._lastEspTsMs = tsMs || __DYNO_DUAL._lastEspTsMs;
 
-    // ✅ baseline paket pertama (hindari spike)
-    if (__DYNO_DUAL._lastFrontTotal === null || __DYNO_DUAL._lastRearTotal === null) {
-      __DYNO_DUAL._lastFrontTotal = frontTotal;
-      __DYNO_DUAL._lastRearTotal  = rearTotal;
-
-      __DYNO_DUAL.totalFrontPulses = frontTotal;
-      __DYNO_DUAL.totalRearPulses  = rearTotal;
-
-      __DYNO_DUAL._frontPulseClockMs = nowPerf;
-
-      __DYNO_DUAL.distPulseM = (__DYNO_DUAL.totalFrontPulses / pf) * circ;
-      __DYNO_DUAL.speedKmh   = Math.max(0, __DYNO_DUAL._vFront) * 3.6;
-
-      // rpm baseline
-      __DYNO_DUAL._rpmOut = clamp(__DYNO_DUAL._rpmOut || __DYNO_DUAL.rpmStart, __DYNO_DUAL.rpmStart, __DYNO_DUAL.rpmEnd);
-      __DYNO_DUAL.rpm = __DYNO_DUAL._rpmOut;
-
-      return;
-    }
-
-    const dFront = frontTotal - __DYNO_DUAL._lastFrontTotal;
-    const dRear  = rearTotal  - __DYNO_DUAL._lastRearTotal;
+    const dFront = frontTotal - (__DYNO_DUAL._lastFrontTotal || 0);
+    const dRear  = rearTotal  - (__DYNO_DUAL._lastRearTotal  || 0);
 
     __DYNO_DUAL._lastFrontTotal = frontTotal;
     __DYNO_DUAL._lastRearTotal  = rearTotal;
@@ -453,14 +463,7 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
       __DYNO_DUAL.rpm = __DYNO_DUAL._rpmOut;
     }
 
-    // distPulse + speedKmh selalu update
-    __DYNO_DUAL.distPulseM = (__DYNO_DUAL.totalFrontPulses / pf) * circ;
-    __DYNO_DUAL.speedKmh   = Math.max(0, __DYNO_DUAL._vFront) * 3.6;
-
-    // kalau tidak running: cukup stop di sini (tetap konek status hidup)
-    if (!__DYNO_DUAL.running) return;
-
-    // SLIP peak + freeze (sejak RUN)
+    // SLIP peak + freeze
     {
       const frontRevRun = (__DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._slipStartFrontPulses) / pf;
       const rearRevRun  = (__DYNO_DUAL.totalRearPulses  - __DYNO_DUAL._slipStartRearPulses)  / pr;
@@ -469,6 +472,7 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
 
       if (!__DYNO_DUAL._slipFrozen) {
         __DYNO_DUAL._slipPeakPct = Math.max(__DYNO_DUAL._slipPeakPct, slipPctNow);
+
         const distRun = Math.max(0, frontRevRun) * circ;
         if (distRun >= SLIP_FREEZE_DIST_M || __DYNO_DUAL.rpm > SLIP_FREEZE_RPM) {
           __DYNO_DUAL._slipFrozen = true;
@@ -479,87 +483,95 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
       __DYNO_DUAL.slipOn  = (__DYNO_DUAL._slipPeakPct > 1e-6);
     }
 
-    // START TIME setelah 1 putaran roda depan sejak RUN
-    if (!__DYNO_DUAL._timeStarted) {
-      const pulsesSinceRun = __DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._frontRunStartPulses;
-      const revSinceRun = pulsesSinceRun / pf;
+    // RUN logic
+    if (__DYNO_DUAL.running) {
+      // start time after 1 rev front
+      if (!__DYNO_DUAL._timeStarted) {
+        const pulsesSinceRun = __DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._frontRunStartPulses;
+        const revSinceRun = pulsesSinceRun / pf;
 
-      if (revSinceRun >= 1.0) {
-        __DYNO_DUAL._timeStarted = true;
+        if (revSinceRun >= 1.0) {
+          __DYNO_DUAL._timeStarted = true;
 
-        __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs || nowPerf;
-        __DYNO_DUAL._frontStartPulses = __DYNO_DUAL.totalFrontPulses;
+          __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs || nowPerf;
+          __DYNO_DUAL._frontStartPulses = __DYNO_DUAL.totalFrontPulses;
 
-        __DYNO_DUAL.t = 0;
-        __DYNO_DUAL.distM = 0;
-        __DYNO_DUAL._distM_fromFront = 0;
+          __DYNO_DUAL.t = 0;
+          __DYNO_DUAL.distM = 0;
+          __DYNO_DUAL._distM_fromFront = 0;
 
-        __DYNO_DUAL.lastEvent = "TIME_START";
+          __DYNO_DUAL.lastEvent = "TIME_START";
+        } else {
+          __DYNO_DUAL.t = 0;
+          __DYNO_DUAL.distM = 0;
+          __DYNO_DUAL._distM_fromFront = 0;
+        }
+      }
+
+      __DYNO_DUAL.distPulseM = (__DYNO_DUAL.totalFrontPulses / pf) * circ;
+
+      if (__DYNO_DUAL._timeStarted) {
+        const pulsesSinceStart = __DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._frontStartPulses;
+        __DYNO_DUAL._distM_fromFront = (pulsesSinceStart / pf) * circ;
+
+        const tPulse = ((__DYNO_DUAL._frontPulseClockMs || nowPerf) - __DYNO_DUAL._t0PulseMs) / 1000;
+        __DYNO_DUAL.t = Math.max(0, tPulse);
+        __DYNO_DUAL.distM = Math.max(0, __DYNO_DUAL._distM_fromFront);
       } else {
         __DYNO_DUAL.t = 0;
         __DYNO_DUAL.distM = 0;
-        __DYNO_DUAL._distM_fromFront = 0;
       }
-    }
 
-    // OUTPUT time/dist dari front ppr
-    if (__DYNO_DUAL._timeStarted) {
-      const pulsesSinceStart = __DYNO_DUAL.totalFrontPulses - __DYNO_DUAL._frontStartPulses;
-      __DYNO_DUAL._distM_fromFront = (pulsesSinceStart / pf) * circ;
+      __DYNO_DUAL.speedKmh = Math.max(0, __DYNO_DUAL._vFront) * 3.6;
 
-      const tPulse = ((__DYNO_DUAL._frontPulseClockMs || nowPerf) - __DYNO_DUAL._t0PulseMs) / 1000;
-      __DYNO_DUAL.t = Math.max(0, tPulse);
-      __DYNO_DUAL.distM = Math.max(0, __DYNO_DUAL._distM_fromFront);
+      // HP from m*a*v after start
+      if (__DYNO_DUAL._timeStarted) {
+        const m = Math.max(1, __DYNO_DUAL.weightKg);
+        const vUse = Math.max(0, __DYNO_DUAL._vRear);
+        const aUse = Math.max(0, __DYNO_DUAL._aRear);
+        const P_watt = Math.max(0, (m * aUse) * vUse);
+
+        let hpRaw = P_watt / WATT_PER_HP;
+        hpRaw = clamp(hpRaw, 0, 999);
+
+        const hpBeta = clamp(1.0 - Math.exp(-dtSec * HP_SMOOTH_HZ), 0.03, 0.35);
+        __DYNO_DUAL._hpOut = __DYNO_DUAL._hpOut + (hpRaw - __DYNO_DUAL._hpOut) * hpBeta;
+
+        __DYNO_DUAL.hp = clamp(__DYNO_DUAL._hpOut, 0, 999);
+
+        const rpmNow = clamp(__DYNO_DUAL.rpm, __DYNO_DUAL.rpmStart, __DYNO_DUAL.rpmEnd);
+        __DYNO_DUAL.tq = (__DYNO_DUAL.hp * 7127) / Math.max(1, rpmNow);
+
+        __DYNO_DUAL.ign = clamp(12 + (rpmNow / 20000) * 18, 0, 70);
+        __DYNO_DUAL.afr = 14.7;
+      } else {
+        __DYNO_DUAL.hp  = 0;
+        __DYNO_DUAL.tq  = 0;
+        __DYNO_DUAL.ign = 0;
+        __DYNO_DUAL.afr = 14.7;
+      }
+
+      if (__DYNO_DUAL.hp > __DYNO_DUAL.maxHP) __DYNO_DUAL.maxHP = __DYNO_DUAL.hp;
+      if (__DYNO_DUAL.tq > __DYNO_DUAL.maxTQ) __DYNO_DUAL.maxTQ = __DYNO_DUAL.tq;
+
+      __DYNO_DUAL._logAccMs += dtSec * 1000;
+      if (__DYNO_DUAL._timeStarted && __DYNO_DUAL._logAccMs >= __DYNO_DUAL.logEveryMs) {
+        __DYNO_DUAL._logAccMs = 0;
+        __DYNO_pushRow();
+      }
+
+      if (__DYNO_DUAL._timeStarted && __DYNO_DUAL.distM >= __DYNO_DUAL.targetM) {
+        __DYNO_DUAL.distM = __DYNO_DUAL.targetM;
+        __DYNO_DUAL.running = false;
+        __DYNO_DUAL.armed = false;
+        __DYNO_DUAL.lastEvent = "AUTO_STOP";
+        __DYNO_DUAL.statusText = "AUTO STOP: target jarak tercapai (" + __DYNO_DUAL.targetM + " m).";
+        __DYNO_stopEspPoll();
+      }
+
     } else {
-      __DYNO_DUAL.t = 0;
-      __DYNO_DUAL.distM = 0;
-    }
-
-    // HP/TQ/IGN hanya setelah start time
-    if (__DYNO_DUAL._timeStarted) {
-      const m = Math.max(1, __DYNO_DUAL.weightKg);
-      const vUse = Math.max(0, __DYNO_DUAL._vRear);
-      const aUse = Math.max(0, __DYNO_DUAL._aRear);
-      const P_watt = Math.max(0, (m * aUse) * vUse);
-
-      let hpRaw = P_watt / WATT_PER_HP;
-      hpRaw = clamp(hpRaw, 0, 999);
-
-      const hpBeta = clamp(1.0 - Math.exp(-dtSec * HP_SMOOTH_HZ), 0.03, 0.35);
-      __DYNO_DUAL._hpOut = __DYNO_DUAL._hpOut + (hpRaw - __DYNO_DUAL._hpOut) * hpBeta;
-
-      __DYNO_DUAL.hp = clamp(__DYNO_DUAL._hpOut, 0, 999);
-
-      const rpmNow = clamp(__DYNO_DUAL.rpm, __DYNO_DUAL.rpmStart, __DYNO_DUAL.rpmEnd);
-      __DYNO_DUAL.tq = (__DYNO_DUAL.hp * 7127) / Math.max(1, rpmNow);
-
-      __DYNO_DUAL.ign = clamp(12 + (rpmNow / 20000) * 18, 0, 70);
-      __DYNO_DUAL.afr = 14.7;
-    } else {
-      __DYNO_DUAL.hp  = 0;
-      __DYNO_DUAL.tq  = 0;
-      __DYNO_DUAL.ign = 0;
-      __DYNO_DUAL.afr = 14.7;
-    }
-
-    if (__DYNO_DUAL.hp > __DYNO_DUAL.maxHP) __DYNO_DUAL.maxHP = __DYNO_DUAL.hp;
-    if (__DYNO_DUAL.tq > __DYNO_DUAL.maxTQ) __DYNO_DUAL.maxTQ = __DYNO_DUAL.tq;
-
-    // logging rows (hanya setelah start time)
-    __DYNO_DUAL._logAccMs += dtSec * 1000;
-    if (__DYNO_DUAL._timeStarted && __DYNO_DUAL._logAccMs >= __DYNO_DUAL.logEveryMs) {
-      __DYNO_DUAL._logAccMs = 0;
-      __DYNO_pushRow();
-    }
-
-    // AUTO STOP
-    if (__DYNO_DUAL._timeStarted && __DYNO_DUAL.distM >= __DYNO_DUAL.targetM) {
-      __DYNO_DUAL.distM = __DYNO_DUAL.targetM;
-      __DYNO_DUAL.running = false;
-      __DYNO_DUAL.armed = false;
-      __DYNO_DUAL.lastEvent = "AUTO_STOP";
-      __DYNO_DUAL.statusText = "AUTO STOP: target jarak tercapai (" + __DYNO_DUAL.targetM + " m).";
-      // polling tetap jalan untuk status koneksi
+      __DYNO_DUAL.speedKmh = Math.max(0, __DYNO_DUAL._vFront) * 3.6;
+      __DYNO_DUAL.distPulseM = (__DYNO_DUAL.totalFrontPulses / pf) * circ;
     }
   }
 
@@ -567,14 +579,22 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
   // INTERNAL HELPERS
   // ================================
   function __DYNO_reset(clearLog) {
-    // ✅ jangan stop polling (status harus selalu hidup)
+    __DYNO_stopEspPoll();
+
     __DYNO_DUAL.t0 = 0;
+    __DYNO_DUAL.lastNow = 0;
     __DYNO_DUAL._logAccMs = 0;
 
     __DYNO_DUAL.t = 0;
 
-    // jangan paksa reset total pulses di sini (biar tidak “melawan” data ESP)
-    // tapi reset log internal dyno-road
+    __DYNO_DUAL.totalFrontPulses = 0;
+    __DYNO_DUAL.totalRearPulses = 0;
+
+    __DYNO_DUAL._lastEspTsMs = 0;
+    __DYNO_DUAL._lastEspPerfMs = performance.now();
+    __DYNO_DUAL._lastFrontTotal = 0;
+    __DYNO_DUAL._lastRearTotal  = 0;
+
     __DYNO_DUAL._timeStarted = false;
     __DYNO_DUAL._frontRunStartPulses = 0;
     __DYNO_DUAL._frontStartPulses = 0;
@@ -582,18 +602,26 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
     __DYNO_DUAL._t0PulseMs = __DYNO_DUAL._frontPulseClockMs;
     __DYNO_DUAL._distM_fromFront = 0;
 
-    __DYNO_DUAL._slipStartFrontPulses = __DYNO_DUAL.totalFrontPulses;
-    __DYNO_DUAL._slipStartRearPulses  = __DYNO_DUAL.totalRearPulses;
+    __DYNO_DUAL._slipStartFrontPulses = 0;
+    __DYNO_DUAL._slipStartRearPulses  = 0;
     __DYNO_DUAL._slipPeakPct = 0;
     __DYNO_DUAL._slipFrozen = false;
     __DYNO_DUAL.slipPct = 0;
     __DYNO_DUAL.slipOn  = false;
 
+    __DYNO_DUAL._vFront = 0;
+    __DYNO_DUAL._vRear  = 0;
+
+    __DYNO_DUAL._vRearPrev = 0;
     __DYNO_DUAL._aRear = 0;
     __DYNO_DUAL._hpOut = 0;
 
+    __DYNO_DUAL._rpmOut = __DYNO_DUAL.rpmStart;
+
     __DYNO_DUAL.distM = 0;
+    __DYNO_DUAL.distPulseM = 0;
     __DYNO_DUAL.speedKmh = 0;
+    __DYNO_DUAL.rpm = __DYNO_DUAL.rpmStart;
     __DYNO_DUAL.tq = 0;
     __DYNO_DUAL.hp = 0;
     __DYNO_DUAL.ign = 0;
@@ -609,6 +637,11 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
 
     __DYNO_DUAL.statusText = "READY";
     __DYNO_DUAL.lastEvent = "READY";
+
+    __DYNO_DUAL.linkOk = false;
+    __DYNO_DUAL.linkText = "DYNO TIDAK TERHUBUNG";
+    __DYNO_DUAL._espFailCount = 0;
+    __DYNO_DUAL._espOkCount = 0;
   }
 
   function __DYNO_pushRow() {
@@ -631,10 +664,5 @@ console.log("%c[ESP-API-DUAL] DYNO-ROAD REAL ESP32 (AP HTTP) + AUTO LINK", "colo
   }
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-
-  // ================================
-  // ✅ AUTO START POLLING (NO SYARAT)
-  // ================================
-  __DYNO_startEspPoll();
 
 })();
