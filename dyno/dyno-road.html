@@ -74,13 +74,12 @@
   <style>
     :root{
       --topbar-h: 56px;
-      --dock-h: 56px;          /* ruang aman untuk dock */
-      --ui-zoom: 1;            /* zoom konten */
-      --vh: 1vh;               /* di-set JS (visualViewport) */
+      --dock-h: 56px;
+      --ui-zoom: 1;
+      --vh: 1vh;
       --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
 
-    /* Root layar */
     html, body{
       width:100%;
       height: calc(var(--vh) * 100);
@@ -90,7 +89,6 @@
       background:#0e0f13;
     }
 
-    /* Bungkus 1 layar */
     #appRoot{
       height: calc(var(--vh) * 100);
       width:100vw;
@@ -98,7 +96,6 @@
       overflow:hidden;
     }
 
-    /* Topbar tetap */
     .topbar{
       position:absolute;
       top:0; left:0; right:0;
@@ -115,7 +112,6 @@
     .topbar .title{ font-weight:900; letter-spacing:.06em; }
     .topbar .subtitle{ opacity:.75; font-size:12px; margin-top:2px; }
 
-    /* Tombol install di kanan atas */
     .top-actions{
       position:absolute;
       right:10px;
@@ -150,7 +146,6 @@
     }
     .chip-btn:active{ filter: brightness(1.15); }
 
-    /* Workspace scrollable (konten) */
     #workspace{
       position:absolute;
       top:var(--topbar-h);
@@ -166,7 +161,6 @@
     }
     #workspace::-webkit-scrollbar{ display:none; }
 
-    /* Inner yang di-zoom: supaya DOCK tidak ikut terdorong */
     #workspaceInner{
       transform-origin: top left;
       transform: scale(var(--ui-zoom));
@@ -174,7 +168,6 @@
       min-height: calc(100% / var(--ui-zoom));
     }
 
-    /* Dock zoom FIXED */
     .zoom-dock{
       position:fixed;
       left:50%;
@@ -230,9 +223,7 @@
       .zoom-dock .zlabel{ min-width:40px; }
     }
 
-    /* ======================================================
-       SPLASH (HTML) + LOADING BAR (Android/PC)
-    ====================================================== */
+    /* SPLASH */
     #splash{
       position:fixed;
       inset:0;
@@ -326,7 +317,6 @@
 
 <body>
 
-<!-- ===== SPLASH HTML (logo terpisah dari icon aplikasi) ===== -->
 <div id="splash" aria-hidden="false">
   <div class="splash-inner">
     <div class="splash-grid">
@@ -343,7 +333,8 @@
 
   <header class="topbar">
     <div class="title">DYNO ROAD</div>
-    <div class="subtitle">ARM → RUN → AUTO STOP (TARGET JARAK)</div>
+    <!-- ✅ ARM di subtitle DIHILANGKAN -->
+    <div class="subtitle">RUN → AUTO STOP (TARGET JARAK)</div>
 
     <div class="top-actions">
       <button id="installBtn" class="chip-btn" type="button" style="display:none;">⬇ INSTALL</button>
@@ -380,19 +371,16 @@
                 <label>PPR DEPAN</label>
                 <input id="d_pprFront" type="number" step="1" value="1"/>
               </div>
-
-              <!-- ✅ PPR BELAKANG DIHILANGKAN -->
             </div>
 
             <div class="btns">
-              <!-- ✅ STATUS BOX tetap, tombol ARM dihilangkan -->
               <div style="display:flex;align-items:flex-end;gap:10px;">
                 <div id="d_connBox"
                      style="height:30px;min-width:170px;padding:0 12px;
                             display:flex;align-items:center;justify-content:center;
                             border-radius:2px;
                             border:1px solid rgba(255,255,255,0.15);
-                            background:#6f6f6f;   /* OFFLINE abu pekat */
+                            background:#6f6f6f;
                             color:#ffffff;
                             font-weight:900;font-size:12px;letter-spacing:.04em;
                             user-select:none;">
@@ -445,7 +433,6 @@
                   <div class="k">Circ (m)</div><div class="v" id="d_circShow">1.85</div>
                   <div class="k">Weight (kg)</div><div class="v" id="d_weightShow">120</div>
                   <div class="k">PPR Front</div><div class="v" id="d_pprFrontShow">1</div>
-                  <!-- ✅ PPR Rear DIHILANGKAN -->
                   <div class="k">Log</div><div class="v" id="d_logInfo">0 rows</div>
                 </div>
               </div>
@@ -462,8 +449,7 @@
                     <th>rpm</th>
                     <th>tq(Nm)</th>
                     <th>hp</th>
-                    <th>ign(°)</th>
-                    <th>afr</th>
+                    <!-- ✅ ign & afr DIHILANGKAN dari DATA LOG -->
                     <th>dist(m)</th>
                   </tr>
                 </thead>
@@ -478,7 +464,6 @@
     </div>
   </div>
 
-  <!-- ===== DOCK ZOOM ===== -->
   <div class="zoom-dock" id="zoomDock">
     <button class="zbtn" id="zoomOutBtn" type="button">−</button>
     <input class="zrange" id="zoomRange" type="range" min="30" max="160" value="100">
@@ -488,13 +473,11 @@
 
 </div>
 
-<!-- scripts -->
 <script src="js/esp-api-dual.js"></script>
 <script src="js/dyno-road.js"></script>
 <script src="js/app.js"></script>
 
 <script>
-/* ===== FIX VH untuk Android/iOS (rotate + address bar) ===== */
 (function(){
   function getH(){
     if (window.visualViewport && typeof window.visualViewport.height === "number"){
@@ -521,7 +504,6 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 
-  /* ===== SPLASH CONTROL (maks 2 detik) ===== */
   const splash = document.getElementById('splash');
   let splashGone = false;
 
@@ -545,7 +527,6 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('load', hideWithMinDelay, { once:true });
   setTimeout(hideSplash, SPLASH_MAX_MS);
 
-  /* ===== ZOOM UI (hanya workspaceInner) ===== */
   const zoomRange = document.getElementById('zoomRange');
   const zoomInBtn = document.getElementById('zoomInBtn');
   const zoomOutBtn = document.getElementById('zoomOutBtn');
@@ -575,7 +556,6 @@ document.addEventListener('DOMContentLoaded', () => {
   zoomInBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) + 5));
   zoomOutBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) - 5));
 
-  /* ===== PWA INSTALL ===== */
   const installBtn = document.getElementById('installBtn');
   let deferredPrompt = null;
 
@@ -597,18 +577,10 @@ document.addEventListener('DOMContentLoaded', () => {
     installBtn.style.display = 'none';
   });
 
-  /* ===== SW ===== */
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/dyno/service-worker.js").catch(()=>{});
   }
 
-  /* ======================================================
-     ✅ CONNECT STATUS BOX (DYNO TERHUBUNG / TIDAK)
-     - OFFLINE: kotak abu pekat + text putih
-     - ONLINE : kotak hijau pekat + text putih
-     - sumber status dari esp-api-dual.js:
-       window.DYNO_getConn_DUAL() -> { connected: true/false }
-  ====================================================== */
   const box = document.getElementById("d_connBox");
 
   function setConnUI(connected){
@@ -616,21 +588,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (connected){
       box.textContent = "DYNO TERHUBUNG";
-      box.style.background = "#12b85a";           /* hijau pekat */
+      box.style.background = "#12b85a";
       box.style.borderColor = "#0ea84f";
       box.style.color = "#ffffff";
     } else {
       box.textContent = "DYNO TIDAK TERHUBUNG";
-      box.style.background = "#6f6f6f";           /* abu pekat */
+      box.style.background = "#6f6f6f";
       box.style.borderColor = "rgba(255,255,255,0.15)";
       box.style.color = "#ffffff";
     }
   }
 
-  // default
   setConnUI(false);
 
-  // poll status ringan
   setInterval(async () => {
     try{
       if (typeof window.DYNO_getConn_DUAL === "function"){
