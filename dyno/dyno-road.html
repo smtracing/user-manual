@@ -1,4 +1,4 @@
-<!-- dyno-road.html (FRONT ONLY — IGN & AFR DIHAPUS) -->
+<!-- dyno-road.html (ZOOM + PWA INSTALL + VH FIX + DOCK STABIL + SPLASH HTML + iOS STARTUP IMAGES) -->
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -6,311 +6,616 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>DYNO ROAD</title>
 
-  <link rel="stylesheet" href="css/style.css"/>
-
-  <!-- PWA -->
-  <link rel="manifest" href="/dyno/manifest.webmanifest?v=1">
+  <!-- ===== PWA ===== -->
+  <link rel="manifest" href="dyno.webmanifest?v=1">
   <meta name="theme-color" content="#0e0f13">
+
+  <!-- ===== iOS A2HS ===== -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DYNO ROAD">
   <link rel="apple-touch-icon" href="/assets/icon-192.png">
 
-  <!-- iOS STARTUP IMAGES -->
-  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/splash-640x1136.png"  media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)">
-  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/splash-750x1334.png"  media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)">
-  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/splash-828x1792.png"  media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)">
-  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/splash-1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)">
-  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/splash-1242x2688.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)">
-  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/splash-1536x2048.png" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2)">
-  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/splash-1668x2224.png" media="(device-width: 834px) and (device-height: 1112px) and (-webkit-device-pixel-ratio: 2)">
-  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/splash-2048x2732.png" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)">
+  <!-- ===== iOS STARTUP IMAGES (LAUNCH SCREEN) =====
+       Taruh file PNG di: /dyno/assets/splash/
+       Nama file harus sama seperti di bawah.
+  -->
+  <!-- iPhone SE (1st gen) / 5 / 5s / 5c -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-640x1136.png"
+        media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPhone 6/7/8 -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-750x1334.png"
+        media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPhone XR / 11 -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-828x1792.png"
+        media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPhone X / XS / 11 Pro -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1125x2436.png"
+        media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+
+  <!-- iPhone 12/13/14 -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1170x2532.png"
+        media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+
+  <!-- iPhone 6/7/8 Plus -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1242x2208.png"
+        media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+
+  <!-- iPhone XS Max / 11 Pro Max -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1242x2688.png"
+        media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+
+  <!-- iPhone 12/13/14 Pro Max -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1284x2778.png"
+        media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+
+  <!-- iPad 9.7" / 10.2" -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1536x2048.png"
+        media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPad 10.5" -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1668x2224.png"
+        media="(device-width: 834px) and (device-height: 1112px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPad 11" -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-1668x2388.png"
+        media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- iPad 12.9" -->
+  <link rel="apple-touch-startup-image" href="/dyno/assets/splash/startup-2048x2732.png"
+        media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
+
+  <!-- style utama -->
+  <link rel="stylesheet" href="css/style.css"/>
 
   <style>
-    :root { --topbar-h:56px; }
-    body { margin:0; background:#0e0f13; color:#eaeef6; font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial; }
-    .topbar{
-      position:sticky; top:0; z-index:20;
-      height:var(--topbar-h);
-      display:flex; align-items:center; justify-content:space-between;
-      padding:0 14px;
-      background:rgba(14,15,19,.92);
-      border-bottom:1px solid rgba(255,255,255,.08);
-      backdrop-filter: blur(10px);
+    :root{
+      --topbar-h: 56px;
+      --dock-h: 56px;
+      --ui-zoom: 1;
+      --vh: 1vh;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
-    .titlewrap{ display:flex; align-items:center; gap:10px; min-width:0; }
-    .logo{ width:34px; height:34px; border-radius:8px; background:rgba(255,255,255,.06); display:flex; align-items:center; justify-content:center; overflow:hidden; }
-    .logo img{ width:100%; height:100%; object-fit:cover; }
-    .title{ font-weight:800; letter-spacing:.3px; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .subtitle{ font-size:12px; opacity:.75; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:55vw; }
 
-    .wrap{ padding:12px; max-width:1200px; margin:0 auto; }
-    .row{ display:flex; gap:12px; flex-wrap:wrap; }
-    .card{
-      background:rgba(255,255,255,.04);
-      border:1px solid rgba(255,255,255,.08);
-      border-radius:14px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    html, body{
+      width:100%;
+      height: calc(var(--vh) * 100);
+      margin:0;
+      overflow:hidden;
+      overscroll-behavior:none;
+      background:#0e0f13;
+    }
+
+    #appRoot{
+      height: calc(var(--vh) * 100);
+      width:100vw;
+      position:relative;
       overflow:hidden;
     }
-    .card .head{
-      padding:10px 12px;
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-      border-bottom:1px solid rgba(255,255,255,.08);
-      background:rgba(255,255,255,.03);
-      font-weight:700; font-size:13px;
-    }
-    .card .body{ padding:12px; }
-    .mini{ font-size:12px; opacity:.75; }
 
-    .btnrow{ display:flex; gap:10px; flex-wrap:wrap; }
-    .btn{
-      appearance:none; border:1px solid rgba(255,255,255,.14);
-      background:rgba(255,255,255,.06);
-      color:#eaeef6;
-      padding:10px 12px; border-radius:12px;
-      font-weight:800; letter-spacing:.3px;
+    .topbar{
+      position:absolute;
+      top:0; left:0; right:0;
+      height:var(--topbar-h);
+      z-index:1000;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      padding:6px 14px;
+      background:rgba(14,15,19,.92);
+      border-bottom:1px solid rgba(255,255,255,.10);
+      backdrop-filter: blur(8px);
+    }
+    .topbar .title{ font-weight:900; letter-spacing:.06em; }
+    .topbar .subtitle{ opacity:.75; font-size:12px; margin-top:2px; }
+
+    .top-actions{
+      position:absolute;
+      right:10px;
+      top:50%;
+      transform:translateY(-50%);
+      display:flex;
+      align-items:center;
+      gap:10px;
+      z-index:1001;
+    }
+
+    .chip-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      height:34px;
+      padding:0 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-weight:800;
+      letter-spacing:.04em;
+      font-size:12px;
+      cursor:pointer;
+      backdrop-filter: blur(8px);
+      -webkit-tap-highlight-color: transparent;
+      user-select:none;
+      white-space:nowrap;
+      transition: filter .12s ease, opacity .12s ease;
+    }
+    .chip-btn:active{ filter: brightness(1.15); }
+
+    #workspace{
+      position:absolute;
+      top:var(--topbar-h);
+      left:0;
+      right:0;
+      bottom: calc(var(--dock-h) + var(--safe-bottom));
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior:contain;
+
+      padding: 14px 12px 18px 12px;
+      box-sizing:border-box;
+    }
+    #workspace::-webkit-scrollbar{ display:none; }
+
+    #workspaceInner{
+      transform-origin: top left;
+      transform: scale(var(--ui-zoom));
+      width: calc(100% / var(--ui-zoom));
+      min-height: calc(100% / var(--ui-zoom));
+    }
+
+    .zoom-dock{
+      position:fixed;
+      left:50%;
+      bottom: calc(10px + var(--safe-bottom));
+      transform:translateX(-50%);
+      z-index:2000;
+
+      height:44px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:8px 10px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.16);
+      background:rgba(0,0,0,.40);
+      backdrop-filter: blur(10px);
+      -webkit-tap-highlight-color: transparent;
+      user-select:none;
+      max-width: calc(100vw - 16px);
+      box-sizing:border-box;
+    }
+    .zoom-dock .zbtn{
+      height:32px;
+      min-width:40px;
+      padding:0 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-weight:900;
       cursor:pointer;
     }
-    .btn:active{ transform: translateY(1px); }
-    .btn.primary{ background:rgba(120,255,190,.14); border-color:rgba(120,255,190,.28); }
-    .btn.danger{ background:rgba(255,80,80,.14); border-color:rgba(255,80,80,.28); }
-
-    .kv{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-    .kv .box{
-      padding:10px 12px; border-radius:12px;
-      background:rgba(0,0,0,.18);
-      border:1px solid rgba(255,255,255,.08);
-    }
-    .kv .k{ font-size:11px; opacity:.7; margin-bottom:4px; }
-    .kv .v{ font-size:18px; font-weight:900; letter-spacing:.2px; }
-
-    .cfg{ display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; }
-    @media (max-width:900px){ .cfg{ grid-template-columns:repeat(2, 1fr);} }
-    .cfg label{ display:block; font-size:11px; opacity:.75; margin-bottom:6px; }
-    .cfg input{
-      width:100%;
-      padding:10px 10px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.12);
-      background:rgba(0,0,0,.22);
-      color:#eaeef6;
-      outline:none;
-    }
-
-    .conn{
-      display:inline-flex; align-items:center; gap:8px;
-      padding:8px 10px; border-radius:999px;
-      border:1px solid rgba(255,255,255,.12);
-      background:rgba(0,0,0,.18);
+    .zoom-dock .zbtn:active{ transform:scale(.98); }
+    .zoom-dock .zrange{ width:140px; accent-color:#ffffff; }
+    .zoom-dock .zlabel{
       font-size:12px;
+      color:#fff;
+      opacity:.85;
+      min-width:44px;
+      text-align:right;
     }
-    .dot{ width:10px; height:10px; border-radius:50%; background:#666; }
 
-    canvas{ width:100%; height:300px; display:block; background:rgba(0,0,0,.18); border-radius:14px; border:1px solid rgba(255,255,255,.08); }
+    @media (orientation: landscape){
+      :root{ --dock-h: 48px; }
+      .zoom-dock{ height:40px; padding:6px 8px; }
+      .zoom-dock .zbtn{ height:30px; min-width:38px; }
+      .zoom-dock .zrange{ width:120px; }
+    }
 
-    table{ width:100%; border-collapse:collapse; font-size:12px; }
-    th,td{ padding:8px 6px; border-bottom:1px solid rgba(255,255,255,.08); text-align:right; }
-    th{ text-align:right; opacity:.8; font-weight:800; background:rgba(255,255,255,.03); position:sticky; top:0; }
-    td:first-child, th:first-child{ text-align:left; }
-    .tablewrap{ max-height:320px; overflow:auto; border-radius:14px; border:1px solid rgba(255,255,255,.08); }
+    @media (max-width:420px){
+      :root{ --dock-h: 56px; }
+      .zoom-dock .zrange{ width:110px; }
+      .zoom-dock .zlabel{ min-width:40px; }
+    }
+
+    /* SPLASH */
+    #splash{
+      position:fixed;
+      inset:0;
+      z-index:9999999;
+      display:block;
+      background:#0e0f13;
+      opacity:1;
+      transition: opacity .25s ease;
+      padding:
+        env(safe-area-inset-top, 0px)
+        env(safe-area-inset-right, 0px)
+        env(safe-area-inset-bottom, 0px)
+        env(safe-area-inset-left, 0px);
+    }
+    #splash.hide{
+      opacity:0;
+      pointer-events:none;
+    }
+    .splash-inner{
+      height: calc(var(--vh) * 100);
+      width: 100%;
+      display:grid;
+      place-items:center;
+    }
+    .splash-grid{
+      width: min(520px, 92vw);
+      height: 100%;
+      display:grid;
+      grid-template-rows: 1.2fr auto auto auto 0.9fr;
+      justify-items:center;
+      align-items:center;
+      gap: 12px;
+      box-sizing:border-box;
+    }
+    .splash-logo{
+      width: min(500px, 85vw);
+      height:auto;
+      user-select:none;
+      -webkit-user-drag:none;
+      transform: translateY(150px);
+    }
+    .splash-bar{
+      width: min(420px, 92vw);
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.10);
+      border: 1px solid rgba(255,255,255,.12);
+      overflow:hidden;
+      position: relative;
+      margin-top: 400px;
+    }
+    .splash-bar::before{
+      content:"";
+      position:absolute;
+      top:0;
+      left:-40%;
+      height:100%;
+      width:40%;
+      border-radius:999px;
+      background: rgba(0,255,100,.9);
+      filter: drop-shadow(0 0 8px rgba(0,255,100,.35));
+      animation: splashMove 1.1s ease-in-out infinite;
+    }
+    @keyframes splashMove{
+      0%{ left:-40%; width:35%; }
+      50%{ left:30%;  width:45%; }
+      100%{ left:110%; width:35%; }
+    }
+    .splash-note{
+      font-size:12px;
+      color: rgba(255,255,255,.70);
+      letter-spacing: .04em;
+    }
+
+    @media (orientation: landscape){
+      .splash-grid{
+        grid-template-rows: 0.7fr auto auto auto 0.7fr;
+        gap: 10px;
+      }
+      .splash-logo{
+        width: min(360px, 60vw);
+        transform: translateY(6px);
+      }
+      .splash-bar{
+        width: min(300px, 70vw);
+        margin-top: 6px;
+      }
+    }
   </style>
 </head>
 
 <body>
-  <header class="topbar">
-    <div class="titlewrap">
-      <div class="logo"><img src="/assets/logo.png" alt="logo" /></div>
-      <div style="min-width:0">
-        <div class="title">DYNO ROAD</div>
-        <div class="subtitle">RUN → WAIT_GATE (1 putaran) → RUNNING → AUTO STOP</div>
-      </div>
-    </div>
 
-    <div class="conn" id="d_connBox">
-      <span class="dot" id="d_connDot"></span>
-      <span id="d_connText">DISCONNECTED</span>
+<div id="splash" aria-hidden="false">
+  <div class="splash-inner">
+    <div class="splash-grid">
+      <div></div>
+      <img class="splash-logo" src="/assets/logo.png" alt="SMT Racing">
+      <div class="splash-bar" aria-label="Loading"></div>
+      <div class="splash-note">LOADING...</div>
+      <div></div>
+    </div>
+  </div>
+</div>
+
+<div id="appRoot">
+
+  <header class="topbar">
+    <div class="title">DYNO ROAD</div>
+    <!-- ✅ ARM di subtitle DIHILANGKAN -->
+    <div class="subtitle">RUN → AUTO STOP (TARGET JARAK)</div>
+
+    <div class="top-actions">
+      <button id="installBtn" class="chip-btn" type="button" style="display:none;">⬇ INSTALL</button>
     </div>
   </header>
 
-  <main class="wrap">
-    <div class="row">
+  <div id="workspace">
+    <div id="workspaceInner">
 
-      <!-- CONTROL -->
-      <section class="card" style="flex:1; min-width:280px;">
-        <div class="head">
-          <span>CONTROL</span>
-          <span class="mini" id="d_status">READY</span>
-        </div>
-        <div class="body">
-          <div class="btnrow">
-            <button class="btn primary" onclick="DYNO_run()">RUN</button>
-            <button class="btn danger" onclick="DYNO_stop()">STOP</button>
-            <button class="btn" onclick="DYNO_saveCSV()">SAVE CSV</button>
+      <main class="page">
+        <section class="card">
+          <div class="card-head">
+            <div class="h1">DYNO ROAD WWW.SMTRACING.COM</div>
           </div>
 
-          <div style="height:12px"></div>
+          <div class="controls">
+            <div class="grid">
+              <div class="field">
+                <label>JARAK (m)</label>
+                <input id="d_targetM" type="number" step="1" value="200"/>
+              </div>
 
-          <!-- CONFIG -->
-          <div class="cfg">
-            <div>
-              <label>Target (m)</label>
-              <input id="in_targetM" type="number" value="200" min="10" max="5000" />
+              <div class="field">
+                <label>LINGKAR RODA (m)</label>
+                <input id="d_circM" type="number" step="0.01" value="1.85"/>
+              </div>
+
+              <div class="field">
+                <label>BERAT TOTAL (kg)</label>
+                <input id="d_weightKg" type="number" step="1" value="120"/>
+              </div>
+
+              <div class="field">
+                <label>PPR DEPAN</label>
+                <input id="d_pprFront" type="number" step="1" value="1"/>
+              </div>
             </div>
-            <div>
-              <label>Circ (m)</label>
-              <input id="in_circM" type="number" value="1.85" step="0.001" min="0.2" max="10" />
-            </div>
-            <div>
-              <label>PPR Front</label>
-              <input id="in_pprFront" type="number" value="1" min="1" max="2000" />
-            </div>
-            <div>
-              <label>Weight (kg)</label>
-              <input id="in_weightKg" type="number" value="120" min="30" max="500" />
+
+            <div class="btns">
+              <div style="display:flex;align-items:flex-end;gap:10px;">
+                <div id="d_connBox"
+                     style="height:30px;min-width:170px;padding:0 12px;
+                            display:flex;align-items:center;justify-content:center;
+                            border-radius:2px;
+                            border:1px solid rgba(255,255,255,0.15);
+                            background:#6f6f6f;
+                            color:#ffffff;
+                            font-weight:900;font-size:12px;letter-spacing:.04em;
+                            user-select:none;">
+                  DYNO TIDAK TERHUBUNG
+                </div>
+              </div>
+
+              <button class="btn green" onclick="DYNO_run()">RUN</button>
+              <button class="btn orange" onclick="DYNO_stop()">STOP</button>
+              <button class="btn blue" onclick="DYNO_saveCSV()">SAVE</button>
             </div>
           </div>
 
-          <div style="height:10px"></div>
-
-          <div class="mini">
-            State: <b id="d_state">IDLE</b>
-            &nbsp;|&nbsp; Gate: <b id="d_gate">-</b>
+          <div class="statusbar">
+            <div id="d_status" class="status">READY</div>
           </div>
-        </div>
-      </section>
 
-      <!-- LIVE -->
-      <section class="card" style="flex:1; min-width:280px;">
-        <div class="head">
-          <span>LIVE</span>
-          <span class="mini">
-            Max HP: <b id="d_hpMax">0.00</b> &nbsp;|&nbsp; Max TQ: <b id="d_tqMax">0.00</b>
-          </span>
-        </div>
-        <div class="body">
-          <div class="kv">
-            <div class="box">
-              <div class="k">TIME (s)</div>
-              <div class="v" id="d_time">0.000</div>
+          <div class="layout layout-wide">
+            <div class="graph-wrap graph-wrap-wide">
+              <canvas id="dynoCanvas"></canvas>
             </div>
-            <div class="box">
-              <div class="k">DIST (m)</div>
-              <div class="v" id="d_dist">0.000</div>
-            </div>
-            <div class="box">
-              <div class="k">SPEED (km/h)</div>
-              <div class="v" id="d_speedLive">0.00</div>
-            </div>
-            <div class="box">
-              <div class="k">RPM</div>
-              <div class="v" id="d_rpmLive">0.0</div>
-            </div>
-            <div class="box">
-              <div class="k">TQ (Nm)</div>
-              <div class="v" id="d_tqLive">0.00</div>
-            </div>
-            <div class="box">
-              <div class="k">HP</div>
-              <div class="v" id="d_hpLive">0.00</div>
+
+            <aside class="side side-wide">
+              <div class="box">
+                <div class="box-title">LIVE</div>
+                <div class="kv">
+                  <div class="k">STATE</div><div class="v" id="d_state">READY</div>
+                  <div class="k">TIME (s)</div><div class="v" id="d_time">0.00</div>
+                  <div class="k">DIST (m)</div><div class="v" id="d_dist">0.0</div>
+                  <div class="k">SPEED (km/h)</div><div class="v" id="d_speedLive">0.0</div>
+                  <div class="k">RPM</div><div class="v" id="d_rpmLive">0</div>
+                </div>
+              </div>
+
+              <div class="box">
+                <div class="box-title">POWER</div>
+                <div class="kv">
+                  <div class="k">TQ (Nm)</div><div class="v tq" id="d_tqLive">0.0</div>
+                  <div class="k">HP</div><div class="v hp" id="d_hpLive">0.0</div>
+                  <div class="k">IGN (°)</div><div class="v ign" id="d_ignLive">0.0</div>
+                  <div class="k">MAX TQ</div><div class="v tq" id="d_tqMax">0.0</div>
+                  <div class="k">MAX HP</div><div class="v hp" id="d_hpMax">0.0</div>
+                </div>
+              </div>
+
+              <div class="box">
+                <div class="box-title">INFO</div>
+                <div class="kv">
+                  <div class="k">Target (m)</div><div class="v" id="d_targetShow">200</div>
+                  <div class="k">Circ (m)</div><div class="v" id="d_circShow">1.85</div>
+                  <div class="k">Weight (kg)</div><div class="v" id="d_weightShow">120</div>
+                  <div class="k">PPR Front</div><div class="v" id="d_pprFrontShow">1</div>
+                  <div class="k">Log</div><div class="v" id="d_logInfo">0 rows</div>
+                </div>
+              </div>
+            </aside>
+          </div>
+
+          <div class="table-wrap table-wide">
+            <div class="table-title">DATA LOG</div>
+            <div class="table-scroll">
+              <table class="log">
+                <thead>
+                  <tr>
+                    <th style="text-align:left">t(s)</th>
+                    <th>rpm</th>
+                    <th>tq(Nm)</th>
+                    <th>hp</th>
+                    <!-- ✅ ign & afr DIHILANGKAN dari DATA LOG -->
+                    <th>dist(m)</th>
+                  </tr>
+                </thead>
+                <tbody id="d_tbody"></tbody>
+              </table>
             </div>
           </div>
-        </div>
-      </section>
+
+        </section>
+      </main>
 
     </div>
+  </div>
 
-    <div style="height:12px"></div>
+  <div class="zoom-dock" id="zoomDock">
+    <button class="zbtn" id="zoomOutBtn" type="button">−</button>
+    <input class="zrange" id="zoomRange" type="range" min="30" max="160" value="100">
+    <button class="zbtn" id="zoomInBtn" type="button">+</button>
+    <div class="zlabel" id="zoomLabel">100%</div>
+  </div>
 
-    <!-- GRAPH -->
-    <section class="card">
-      <div class="head">
-        <span>GRAPH (HP & TQ vs RPM)</span>
-        <span class="mini">
-          Target: <b id="d_targetShow">200</b> m
-          &nbsp;|&nbsp; Circ: <b id="d_circShow">1.850</b> m
-          &nbsp;|&nbsp; PPR: <b id="d_pprFrontShow">1</b>
-          &nbsp;|&nbsp; Weight: <b id="d_weightShow">120</b> kg
-        </span>
-      </div>
-      <div class="body">
-        <canvas id="dynoCanvas" width="1000" height="300"></canvas>
-        <div class="mini" id="d_logInfo" style="margin-top:8px; opacity:.8">log: 0 rows</div>
-      </div>
-    </section>
+</div>
 
-    <div style="height:12px"></div>
+<script src="js/esp-api-dual.js"></script>
+<script src="js/dyno-road.js"></script>
+<script src="js/app.js"></script>
 
-    <!-- TABLE -->
-    <section class="card">
-      <div class="head">
-        <span>LOG TABLE</span>
-        <span class="mini"># , time(s), rpm, hp, tq, speed, dist</span>
-      </div>
-      <div class="body">
-        <div class="tablewrap">
-          <table>
-            <thead>
-              <tr>
-                <th style="text-align:left">#</th>
-                <th>time(s)</th>
-                <th>rpm</th>
-                <th>hp</th>
-                <th>tq</th>
-                <th>speed</th>
-                <th>dist</th>
-              </tr>
-            </thead>
-            <tbody id="d_tbody"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-  </main>
-
-  <!-- JS -->
-  <script src="js/esp-api-dual.js"></script>
-  <script src="js/dyno-road.js"></script>
-
-  <script>
-    /* indikator koneksi (FIX: pakai c.connected, bukan c.ok) */
-    (function(){
-      const box = document.getElementById("d_connBox");
-      const dot = document.getElementById("d_connDot");
-      const txt = document.getElementById("d_connText");
-
-      async function tick(){
-        try{
-          const c = await DYNO_getConn_DUAL();
-          if (c && c.connected){
-            txt.textContent = "CONNECTED";
-            dot.style.background = "#4cff8f";
-            box.style.borderColor = "rgba(76,255,143,.35)";
-            box.style.background = "rgba(76,255,143,.08)";
-          }else{
-            txt.textContent = "DISCONNECTED";
-            dot.style.background = "#ff4d4d";
-            box.style.borderColor = "rgba(255,77,77,.35)";
-            box.style.background = "rgba(255,77,77,.08)";
-          }
-        }catch(e){
-          txt.textContent = "DISCONNECTED";
-          dot.style.background = "#ff4d4d";
-          box.style.borderColor = "rgba(255,77,77,.35)";
-          box.style.background = "rgba(255,77,77,.08)";
-        }
-      }
-      setInterval(tick, 500);
-      tick();
-    })();
-  </script>
-
-  <!-- service worker (opsional sesuai setup kamu) -->
-  <script>
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/dyno/service-worker.js").catch(()=>{});
+<script>
+(function(){
+  function getH(){
+    if (window.visualViewport && typeof window.visualViewport.height === "number"){
+      return window.visualViewport.height;
     }
-  </script>
+    return window.innerHeight;
+  }
+  function setVH(){
+    const h = getH();
+    document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
+  }
+  setVH();
+  window.addEventListener('resize', setVH, {passive:true});
+  if (window.visualViewport){
+    window.visualViewport.addEventListener('resize', setVH, {passive:true});
+  }
+  window.addEventListener('orientationchange', () => {
+    setTimeout(setVH, 250);
+    setTimeout(setVH, 600);
+  }, {passive:true});
+})();
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+  const splash = document.getElementById('splash');
+  let splashGone = false;
+
+  const SPLASH_MIN_MS = 9000;
+  const SPLASH_MAX_MS = 11000;
+  const splashStart  = Date.now();
+
+  function hideSplash(){
+    if (splashGone) return;
+    splashGone = true;
+    splash.classList.add('hide');
+    setTimeout(() => { splash.style.display = 'none'; }, 350);
+  }
+
+  function hideWithMinDelay(){
+    const elapsed = Date.now() - splashStart;
+    const wait = Math.max(0, SPLASH_MIN_MS - elapsed);
+    setTimeout(hideSplash, wait);
+  }
+
+  window.addEventListener('load', hideWithMinDelay, { once:true });
+  setTimeout(hideSplash, SPLASH_MAX_MS);
+
+  const zoomRange = document.getElementById('zoomRange');
+  const zoomInBtn = document.getElementById('zoomInBtn');
+  const zoomOutBtn = document.getElementById('zoomOutBtn');
+  const zoomLabel = document.getElementById('zoomLabel');
+
+  function setZoomPct(pct){
+    const clamped = Math.max(30, Math.min(160, pct));
+    const z = clamped / 100;
+
+    document.documentElement.style.setProperty('--ui-zoom', z.toFixed(3));
+    zoomRange.value = String(clamped);
+    zoomLabel.textContent = clamped + "%";
+
+    requestAnimationFrame(() => {
+      try{
+        if (typeof window.DYNO_redraw === "function") window.DYNO_redraw();
+      }catch(e){}
+      try{
+        if (typeof window.renderDyno === "function") window.renderDyno();
+      }catch(e){}
+      window.dispatchEvent(new Event("resize"));
+    });
+  }
+  setZoomPct(100);
+
+  zoomRange.addEventListener('input', () => setZoomPct(parseInt(zoomRange.value,10) || 100));
+  zoomInBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) + 5));
+  zoomOutBtn.addEventListener('click', () => setZoomPct((parseInt(zoomRange.value,10) || 100) - 5));
+
+  const installBtn = document.getElementById('installBtn');
+  let deferredPrompt = null;
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    installBtn.style.display = 'inline-flex';
+  });
+
+  installBtn.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    installBtn.style.display = 'none';
+  });
+
+  window.addEventListener('appinstalled', () => {
+    installBtn.style.display = 'none';
+  });
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/dyno/service-worker.js").catch(()=>{});
+  }
+
+  const box = document.getElementById("d_connBox");
+
+  function setConnUI(connected){
+    if (!box) return;
+
+    if (connected){
+      box.textContent = "DYNO TERHUBUNG";
+      box.style.background = "#12b85a";
+      box.style.borderColor = "#0ea84f";
+      box.style.color = "#ffffff";
+    } else {
+      box.textContent = "DYNO TIDAK TERHUBUNG";
+      box.style.background = "#6f6f6f";
+      box.style.borderColor = "rgba(255,255,255,0.15)";
+      box.style.color = "#ffffff";
+    }
+  }
+
+  setConnUI(false);
+
+  setInterval(async () => {
+    try{
+      if (typeof window.DYNO_getConn_DUAL === "function"){
+        const s = await window.DYNO_getConn_DUAL();
+        setConnUI(!!(s && s.connected));
+      } else {
+        setConnUI(false);
+      }
+    }catch(e){
+      setConnUI(false);
+    }
+  }, 400);
+
+});
+</script>
+
 </body>
 </html>
