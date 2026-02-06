@@ -1,4 +1,4 @@
-<!-- dyno-road.html (ZOOM + PWA INSTALL + VH FIX + DOCK STABIL + SPLASH HTML + iOS STARTUP IMAGES) -->
+<!-- dyno-road.html (UI PUNYA KAMU + DI RAPINKAN: TIDAK DOBEL UI, ID TIDAK TABRAKAN, IGN/AFR DIHAPUS) -->
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -333,7 +333,6 @@
 
   <header class="topbar">
     <div class="title">DYNO ROAD</div>
-    <!-- ✅ ARM di subtitle DIHILANGKAN -->
     <div class="subtitle">RUN → AUTO STOP (TARGET JARAK)</div>
 
     <div class="top-actions">
@@ -420,7 +419,7 @@
                 <div class="kv">
                   <div class="k">TQ (Nm)</div><div class="v tq" id="d_tqLive">0.0</div>
                   <div class="k">HP</div><div class="v hp" id="d_hpLive">0.0</div>
-                  <!-- ✅ IGN DIHILANGKAN dari POWER -->
+                  <!-- ✅ IGN/AFR DIHAPUS (firmware juga tidak kirim) -->
                   <div class="k">MAX TQ</div><div class="v tq" id="d_tqMax">0.0</div>
                   <div class="k">MAX HP</div><div class="v hp" id="d_hpMax">0.0</div>
                 </div>
@@ -439,18 +438,20 @@
             </aside>
           </div>
 
+          <!-- ✅ TABLE DISAMAKAN KE FORMAT 7 KOLOM (lebih aman dengan dyno-road.js yang kamu pakai) -->
           <div class="table-wrap table-wide">
             <div class="table-title">DATA LOG</div>
             <div class="table-scroll">
               <table class="log">
                 <thead>
                   <tr>
-                    <th style="text-align:left">t(s)</th>
+                    <th style="text-align:left">#</th>
+                    <th>time(s)</th>
                     <th>rpm</th>
-                    <th>tq(Nm)</th>
                     <th>hp</th>
-                    <!-- ✅ ign & afr DIHILANGKAN dari DATA LOG -->
-                    <th>dist(m)</th>
+                    <th>tq</th>
+                    <th>speed</th>
+                    <th>dist</th>
                   </tr>
                 </thead>
                 <tbody id="d_tbody"></tbody>
