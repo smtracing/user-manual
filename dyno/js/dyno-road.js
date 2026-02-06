@@ -4,6 +4,7 @@
    - UI dipertahankan (HTML tidak perlu diubah)
    - TIME/DIST/SPEED/RPM/HP/TQ diambil dari FIRMWARE snapshot
    - START GATE: web hanya menampilkan gate_wait dari firmware
+   - FIX: target jarak di grafik ikut berubah saat input jarak diubah
 ========================================================= */
 
 console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
@@ -57,7 +58,10 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     statusTimer:null,
 
     // canvas
-    c:null, ctx:null, W:0, H:0
+    c:null, ctx:null, W:0, H:0,
+
+    // config push debounce
+    cfgPushTimer:null
   };
 
   // ==========================
@@ -82,6 +86,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     ensureStatusProgressEl();
     setStatus("READY");
 
+    updateStatusProgress();
     DYNO_draw();
   };
 
@@ -115,6 +120,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     }
 
     await pollFromESP(true);
+    updateStatusProgress();
     DYNO_draw();
   };
 
@@ -172,6 +178,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     updateState("STOP");
     setStatus("STOP. Data tersimpan di tabel (belum dihapus).");
 
+    updateStatusProgress();
     DYNO_draw();
 
     if (typeof window.DYNO_stop_DUAL === "function") {
@@ -182,6 +189,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
   window.DYNO_reset = async function(quiet){
     DYNO_reset(!!quiet);
     if (!quiet) setStatus("RESET.");
+    updateStatusProgress();
     DYNO_draw();
 
     if (typeof window.DYNO_reset_DUAL === "function") {
@@ -231,14 +239,43 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     ids.forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.addEventListener("change", () => {
-        readInputs();
-        updateInfoBox();
-      });
+
+      // FIX: saat input berubah, grafik ikut update sekarang juga
+      el.addEventListener("input", onConfigChanged);
+      el.addEventListener("change", onConfigChanged);
     });
 
     // set initial box values
+    readInputs();
     updateInfoBox();
+    updateStatusProgress();
+  }
+
+  function onConfigChanged(){
+    readInputs();
+    updateInfoBox();
+    updateStatusProgress();
+    DYNO_draw();
+
+    // optional: push config ke ESP meskipun belum RUN (biar firmware echo ikut update)
+    debouncePushConfigToESP();
+  }
+
+  function debouncePushConfigToESP(){
+    if (DYNO.cfgPushTimer) clearTimeout(DYNO.cfgPushTimer);
+    DYNO.cfgPushTimer = setTimeout(async () => {
+      DYNO.cfgPushTimer = null;
+      if (typeof window.DYNO_setConfig_DUAL !== "function") return;
+
+      try{
+        await window.DYNO_setConfig_DUAL({
+          targetM: DYNO.targetM,
+          circM: DYNO.circM,
+          pprFront: DYNO.pprFront,
+          weightKg: DYNO.weightKg
+        });
+      }catch(e){}
+    }, 250);
   }
 
   function readInputs(){
@@ -282,11 +319,13 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
       DYNO.armed   = fwArmed;
       DYNO.running = fwRunning;
 
-      // ---- CONFIG echo (firmware A3.ino mengirim ini)
-      if (isFinite(Number(snap.targetM)))  DYNO.targetM  = Math.max(1, Number(snap.targetM));
-      if (isFinite(Number(snap.circM)))    DYNO.circM    = Number(snap.circM);
-      if (isFinite(Number(snap.pprFront))) DYNO.pprFront = Math.max(1, Math.round(Number(snap.pprFront)));
-      if (isFinite(Number(snap.weightKg))) DYNO.weightKg = Math.max(1, Math.round(Number(snap.weightKg)));
+      // ---- CONFIG echo dari firmware
+      // Catatan: kita tetap boleh terima echo, tapi input web sudah jadi master saat user ubah
+      // Jadi: hanya update jika firmware kirim angka valid (dan tidak nol)
+      if (isFinite(Number(snap.targetM)) && Number(snap.targetM) > 0)  DYNO.targetM  = Math.max(1, Number(snap.targetM));
+      if (isFinite(Number(snap.circM))   && Number(snap.circM) > 0)    DYNO.circM    = Number(snap.circM);
+      if (isFinite(Number(snap.pprFront))&& Number(snap.pprFront)>0)   DYNO.pprFront = Math.max(1, Math.round(Number(snap.pprFront)));
+      if (isFinite(Number(snap.weightKg))&& Number(snap.weightKg)>0)   DYNO.weightKg = Math.max(1, Math.round(Number(snap.weightKg)));
 
       // ---- LIVE computed FROM FIRMWARE
       const t_s      = Number(snap.t_s ?? snap.t ?? 0);
@@ -577,7 +616,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     ctx.clearRect(0,0,W,H);
 
     const PAD_L = 97;
-    const PAD_R = 18;   // lebih rapat (karena ign/afr hilang)
+    const PAD_R = 18;
     const PAD_T = 14;
     const PAD_B = 44;
 
@@ -594,7 +633,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     const rMax = DYNO.rpmEnd;
 
     const dMin = 0;
-    const dMax = Math.max(1, DYNO.targetM);
+    const dMax = Math.max(1, DYNO.targetM); // ini yang bikin kotak jarak grafik ikut target input
 
     const yMaxPower = niceMax(Math.max(1, DYNO.maxHP || 0, DYNO.maxTQ || 0, 1));
 
