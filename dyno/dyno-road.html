@@ -381,14 +381,11 @@
                 <input id="d_pprFront" type="number" step="1" value="1"/>
               </div>
 
-              <div class="field">
-                <label>PPR BELAKANG</label>
-                <input id="d_pprRear" type="number" step="1" value="1"/>
-              </div>
+              <!-- ✅ PPR BELAKANG DIHILANGKAN -->
             </div>
 
             <div class="btns">
-              <!-- ✅ KOTAK STATUS DI KIRI ARM + tinggi lebih kecil -->
+              <!-- ✅ STATUS BOX tetap, tombol ARM dihilangkan -->
               <div style="display:flex;align-items:flex-end;gap:10px;">
                 <div id="d_connBox"
                      style="height:30px;min-width:170px;padding:0 12px;
@@ -401,8 +398,6 @@
                             user-select:none;">
                   DYNO TIDAK TERHUBUNG
                 </div>
-
-                <button class="btn gray" onclick="DYNO_arm()">ARM</button>
               </div>
 
               <button class="btn green" onclick="DYNO_run()">RUN</button>
@@ -450,7 +445,7 @@
                   <div class="k">Circ (m)</div><div class="v" id="d_circShow">1.85</div>
                   <div class="k">Weight (kg)</div><div class="v" id="d_weightShow">120</div>
                   <div class="k">PPR Front</div><div class="v" id="d_pprFrontShow">1</div>
-                  <div class="k">PPR Rear</div><div class="v" id="d_pprRearShow">1</div>
+                  <!-- ✅ PPR Rear DIHILANGKAN -->
                   <div class="k">Log</div><div class="v" id="d_logInfo">0 rows</div>
                 </div>
               </div>
@@ -642,7 +637,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const s = await window.DYNO_getConn_DUAL();
         setConnUI(!!(s && s.connected));
       } else {
-        // kalau fungsi belum ada, anggap tidak terhubung
         setConnUI(false);
       }
     }catch(e){
