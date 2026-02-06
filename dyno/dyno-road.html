@@ -6,7 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>DYNO ROAD</title>
 
-  <!-- style utama (jangan dibahas, tetap kamu) -->
   <link rel="stylesheet" href="css/style.css"/>
 
   <!-- PWA -->
@@ -34,200 +33,232 @@
       position:sticky; top:0; z-index:20;
       height:var(--topbar-h);
       display:flex; align-items:center; justify-content:space-between;
-      padding:0 14px; background:rgba(14,15,19,0.90); backdrop-filter: blur(10px);
-      border-bottom:1px solid rgba(255,255,255,0.08);
+      padding:0 14px;
+      background:rgba(14,15,19,.92);
+      border-bottom:1px solid rgba(255,255,255,.08);
+      backdrop-filter: blur(10px);
     }
-    .title{ font-weight:800; letter-spacing:.5px; }
-    .sub{ font-size:12px; opacity:.75; margin-left:10px; }
-    .wrap{ padding:12px; max-width:1100px; margin:0 auto; }
+    .titlewrap{ display:flex; align-items:center; gap:10px; min-width:0; }
+    .logo{ width:34px; height:34px; border-radius:8px; background:rgba(255,255,255,.06); display:flex; align-items:center; justify-content:center; overflow:hidden; }
+    .logo img{ width:100%; height:100%; object-fit:cover; }
+    .title{ font-weight:800; letter-spacing:.3px; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .subtitle{ font-size:12px; opacity:.75; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:55vw; }
+
+    .wrap{ padding:12px; max-width:1200px; margin:0 auto; }
     .row{ display:flex; gap:12px; flex-wrap:wrap; }
     .card{
-      background:rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.08);
+      background:rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);
       border-radius:14px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
       overflow:hidden;
-      min-width:280px;
-      flex:1;
     }
-    .head{
-      display:flex; align-items:center; justify-content:space-between;
+    .card .head{
       padding:10px 12px;
-      border-bottom:1px solid rgba(255,255,255,0.06);
-      font-weight:700;
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+      background:rgba(255,255,255,.03);
+      font-weight:700; font-size:13px;
     }
-    .body{ padding:12px; }
+    .card .body{ padding:12px; }
     .mini{ font-size:12px; opacity:.75; }
-    .btns{ display:flex; gap:10px; flex-wrap:wrap; }
+
+    .btnrow{ display:flex; gap:10px; flex-wrap:wrap; }
     .btn{
-      border:1px solid rgba(255,255,255,0.18);
-      background:rgba(255,255,255,0.06);
+      appearance:none; border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.06);
       color:#eaeef6;
-      padding:10px 12px;
-      border-radius:12px;
-      font-weight:800;
+      padding:10px 12px; border-radius:12px;
+      font-weight:800; letter-spacing:.3px;
       cursor:pointer;
     }
     .btn:active{ transform: translateY(1px); }
-    .grid2{
-      display:grid;
-      grid-template-columns: repeat(2, minmax(120px,1fr));
-      gap:10px;
+    .btn.primary{ background:rgba(120,255,190,.14); border-color:rgba(120,255,190,.28); }
+    .btn.danger{ background:rgba(255,80,80,.14); border-color:rgba(255,80,80,.28); }
+
+    .kv{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .kv .box{
+      padding:10px 12px; border-radius:12px;
+      background:rgba(0,0,0,.18);
+      border:1px solid rgba(255,255,255,.08);
     }
-    label{ font-size:12px; opacity:.75; display:block; margin-bottom:6px; }
-    input{
+    .kv .k{ font-size:11px; opacity:.7; margin-bottom:4px; }
+    .kv .v{ font-size:18px; font-weight:900; letter-spacing:.2px; }
+
+    .cfg{ display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; }
+    @media (max-width:900px){ .cfg{ grid-template-columns:repeat(2, 1fr);} }
+    .cfg label{ display:block; font-size:11px; opacity:.75; margin-bottom:6px; }
+    .cfg input{
       width:100%;
       padding:10px 10px;
       border-radius:12px;
-      border:1px solid rgba(255,255,255,0.14);
-      background:rgba(0,0,0,0.22);
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(0,0,0,.22);
       color:#eaeef6;
       outline:none;
     }
-    .kv{
-      display:grid;
-      grid-template-columns: repeat(3, minmax(140px,1fr));
-      gap:10px;
+
+    .conn{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:8px 10px; border-radius:999px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(0,0,0,.18);
+      font-size:12px;
     }
-    .box{
-      padding:10px;
-      border-radius:12px;
-      background:rgba(0,0,0,0.22);
-      border:1px solid rgba(255,255,255,0.08);
-    }
-    .k{ font-size:12px; opacity:.75; }
-    .v{ font-size:22px; font-weight:900; margin-top:4px; }
-    .tablewrap{ overflow:auto; border-radius:12px; border:1px solid rgba(255,255,255,0.08); }
+    .dot{ width:10px; height:10px; border-radius:50%; background:#666; }
+
+    canvas{ width:100%; height:300px; display:block; background:rgba(0,0,0,.18); border-radius:14px; border:1px solid rgba(255,255,255,.08); }
+
     table{ width:100%; border-collapse:collapse; font-size:12px; }
-    th,td{ padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.06); text-align:center; }
-    thead th{ position:sticky; top:0; background:rgba(14,15,19,0.92); }
-    canvas{ width:100%; height:320px; border-radius:12px; border:1px solid rgba(255,255,255,0.08); background:#0e0f13; }
-    #d_connBox{
-      font-weight:900;
-      padding:8px 10px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,0.15);
-      background:#6f6f6f;
-      color:#fff;
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      white-space:nowrap;
-    }
-    #d_connDot{
-      width:10px; height:10px; border-radius:999px;
-      background:#ff4d4d;
-      box-shadow:0 0 0 3px rgba(0,0,0,0.15) inset;
-    }
+    th,td{ padding:8px 6px; border-bottom:1px solid rgba(255,255,255,.08); text-align:right; }
+    th{ text-align:right; opacity:.8; font-weight:800; background:rgba(255,255,255,.03); position:sticky; top:0; }
+    td:first-child, th:first-child{ text-align:left; }
+    .tablewrap{ max-height:320px; overflow:auto; border-radius:14px; border:1px solid rgba(255,255,255,.08); }
   </style>
 </head>
 
 <body>
-  <div class="topbar">
-    <div style="display:flex; align-items:baseline; gap:10px;">
-      <div class="title">DYNO ROAD</div>
-      <div class="sub">FRONT ONLY (HP/TQ dari PPR Depan)</div>
+  <header class="topbar">
+    <div class="titlewrap">
+      <div class="logo"><img src="/assets/logo.png" alt="logo" /></div>
+      <div style="min-width:0">
+        <div class="title">DYNO ROAD</div>
+        <div class="subtitle">RUN → WAIT_GATE (1 putaran) → RUNNING → AUTO STOP</div>
+      </div>
     </div>
-    <div id="d_connBox"><span id="d_connDot"></span><span id="d_connText">DYNO TIDAK TERHUBUNG</span></div>
-  </div>
 
-  <div class="wrap">
+    <div class="conn" id="d_connBox">
+      <span class="dot" id="d_connDot"></span>
+      <span id="d_connText">DISCONNECTED</span>
+    </div>
+  </header>
 
+  <main class="wrap">
     <div class="row">
-      <section class="card" style="max-width:520px;">
+
+      <!-- CONTROL -->
+      <section class="card" style="flex:1; min-width:280px;">
         <div class="head">
           <span>CONTROL</span>
-          <span class="mini">RUN = reset + WAIT_GATE (mulai setelah 1 putaran)</span>
+          <span class="mini" id="d_status">READY</span>
         </div>
         <div class="body">
-          <div class="btns">
-            <button class="btn" id="btnRun">RUN</button>
-            <button class="btn" id="btnStop">STOP</button>
-            <button class="btn" id="btnReset">RESET</button>
+          <div class="btnrow">
+            <button class="btn primary" onclick="DYNO_run()">RUN</button>
+            <button class="btn danger" onclick="DYNO_stop()">STOP</button>
+            <button class="btn" onclick="DYNO_saveCSV()">SAVE CSV</button>
           </div>
 
           <div style="height:12px"></div>
 
-          <div class="grid2">
+          <!-- CONFIG -->
+          <div class="cfg">
             <div>
               <label>Target (m)</label>
-              <input id="d_targetM" type="number" step="1" value="200" min="10" max="5000" />
+              <input id="in_targetM" type="number" value="200" min="10" max="5000" />
             </div>
             <div>
               <label>Circ (m)</label>
-              <input id="d_circM" type="number" step="0.001" value="1.85" min="0.2" max="10" />
+              <input id="in_circM" type="number" value="1.85" step="0.001" min="0.2" max="10" />
             </div>
             <div>
               <label>PPR Front</label>
-              <input id="d_pprFront" type="number" step="1" value="1" min="1" max="2000" />
+              <input id="in_pprFront" type="number" value="1" min="1" max="2000" />
             </div>
             <div>
               <label>Weight (kg)</label>
-              <input id="d_weightKg" type="number" step="1" value="120" min="30" max="500" />
+              <input id="in_weightKg" type="number" value="120" min="30" max="500" />
             </div>
           </div>
 
           <div style="height:10px"></div>
+
           <div class="mini">
-            State: <b id="d_state">READY</b>
+            State: <b id="d_state">IDLE</b>
             &nbsp;|&nbsp; Gate: <b id="d_gate">-</b>
-            &nbsp;|&nbsp; Status: <b id="d_status">READY</b>
           </div>
         </div>
       </section>
 
-      <section class="card">
+      <!-- LIVE -->
+      <section class="card" style="flex:1; min-width:280px;">
         <div class="head">
           <span>LIVE</span>
-          <span class="mini">Max HP: <b id="d_hpMax">0.0</b> | Max TQ: <b id="d_tqMax">0.0</b></span>
+          <span class="mini">
+            Max HP: <b id="d_hpMax">0.00</b> &nbsp;|&nbsp; Max TQ: <b id="d_tqMax">0.00</b>
+          </span>
         </div>
         <div class="body">
           <div class="kv">
-            <div class="box"><div class="k">TIME (s)</div><div class="v" id="d_time">0.00</div></div>
-            <div class="box"><div class="k">DIST (m)</div><div class="v" id="d_dist">0.0</div></div>
-            <div class="box"><div class="k">SPEED (km/h)</div><div class="v" id="d_speedLive">0.0</div></div>
-            <div class="box"><div class="k">RPM</div><div class="v" id="d_rpmLive">0</div></div>
-            <div class="box"><div class="k">TQ (Nm)</div><div class="v" id="d_tqLive">0.0</div></div>
-            <div class="box"><div class="k">HP</div><div class="v" id="d_hpLive">0.0</div></div>
+            <div class="box">
+              <div class="k">TIME (s)</div>
+              <div class="v" id="d_time">0.000</div>
+            </div>
+            <div class="box">
+              <div class="k">DIST (m)</div>
+              <div class="v" id="d_dist">0.000</div>
+            </div>
+            <div class="box">
+              <div class="k">SPEED (km/h)</div>
+              <div class="v" id="d_speedLive">0.00</div>
+            </div>
+            <div class="box">
+              <div class="k">RPM</div>
+              <div class="v" id="d_rpmLive">0.0</div>
+            </div>
+            <div class="box">
+              <div class="k">TQ (Nm)</div>
+              <div class="v" id="d_tqLive">0.00</div>
+            </div>
+            <div class="box">
+              <div class="k">HP</div>
+              <div class="v" id="d_hpLive">0.00</div>
+            </div>
           </div>
         </div>
       </section>
+
     </div>
 
     <div style="height:12px"></div>
 
+    <!-- GRAPH -->
     <section class="card">
       <div class="head">
         <span>GRAPH (HP & TQ vs RPM)</span>
         <span class="mini">
           Target: <b id="d_targetShow">200</b> m
-          &nbsp;|&nbsp; Circ: <b id="d_circShow">1.85</b> m
+          &nbsp;|&nbsp; Circ: <b id="d_circShow">1.850</b> m
           &nbsp;|&nbsp; PPR: <b id="d_pprFrontShow">1</b>
           &nbsp;|&nbsp; Weight: <b id="d_weightShow">120</b> kg
         </span>
       </div>
       <div class="body">
-        <canvas id="dynoCanvas"></canvas>
-        <div class="mini" id="d_logInfo" style="margin-top:8px; opacity:.8">0 rows</div>
+        <canvas id="dynoCanvas" width="1000" height="300"></canvas>
+        <div class="mini" id="d_logInfo" style="margin-top:8px; opacity:.8">log: 0 rows</div>
       </div>
     </section>
 
     <div style="height:12px"></div>
 
+    <!-- TABLE -->
     <section class="card">
       <div class="head">
         <span>LOG TABLE</span>
-        <span class="mini">t(s), rpm, tq, hp, dist(m)</span>
+        <span class="mini"># , time(s), rpm, hp, tq, speed, dist</span>
       </div>
       <div class="body">
         <div class="tablewrap">
           <table>
             <thead>
               <tr>
-                <th style="text-align:left">t(s)</th>
+                <th style="text-align:left">#</th>
+                <th>time(s)</th>
                 <th>rpm</th>
-                <th>tq(Nm)</th>
                 <th>hp</th>
-                <th>dist(m)</th>
+                <th>tq</th>
+                <th>speed</th>
+                <th>dist</th>
               </tr>
             </thead>
             <tbody id="d_tbody"></tbody>
@@ -236,56 +267,50 @@
       </div>
     </section>
 
-  </div>
+  </main>
 
   <!-- JS -->
   <script src="js/esp-api-dual.js"></script>
   <script src="js/dyno-road.js"></script>
 
-  <!-- indikator koneksi (pakai DYNO_getConn_DUAL: return {connected:true/false}) -->
   <script>
-  document.addEventListener("DOMContentLoaded", () => {
-    const box = document.getElementById("d_connBox");
-    const dot = document.getElementById("d_connDot");
-    const txt = document.getElementById("d_connText");
+    /* indikator koneksi (FIX: pakai c.connected, bukan c.ok) */
+    (function(){
+      const box = document.getElementById("d_connBox");
+      const dot = document.getElementById("d_connDot");
+      const txt = document.getElementById("d_connText");
 
-    function setConnUI(connected){
-      if (!box) return;
-      if (connected){
-        txt.textContent = "DYNO TERHUBUNG";
-        dot.style.background = "#4cff8f";
-        box.style.background = "#12b85a";
-        box.style.borderColor = "#0ea84f";
-        box.style.color = "#ffffff";
-      } else {
-        txt.textContent = "DYNO TIDAK TERHUBUNG";
-        dot.style.background = "#ff4d4d";
-        box.style.background = "#6f6f6f";
-        box.style.borderColor = "rgba(255,255,255,0.15)";
-        box.style.color = "#ffffff";
-      }
-    }
-
-    setConnUI(false);
-
-    setInterval(async () => {
-      try{
-        if (typeof window.DYNO_getConn_DUAL === "function"){
-          const s = await window.DYNO_getConn_DUAL();
-          setConnUI(!!(s && s.connected));
-        } else {
-          setConnUI(false);
+      async function tick(){
+        try{
+          const c = await DYNO_getConn_DUAL();
+          if (c && c.connected){
+            txt.textContent = "CONNECTED";
+            dot.style.background = "#4cff8f";
+            box.style.borderColor = "rgba(76,255,143,.35)";
+            box.style.background = "rgba(76,255,143,.08)";
+          }else{
+            txt.textContent = "DISCONNECTED";
+            dot.style.background = "#ff4d4d";
+            box.style.borderColor = "rgba(255,77,77,.35)";
+            box.style.background = "rgba(255,77,77,.08)";
+          }
+        }catch(e){
+          txt.textContent = "DISCONNECTED";
+          dot.style.background = "#ff4d4d";
+          box.style.borderColor = "rgba(255,77,77,.35)";
+          box.style.background = "rgba(255,77,77,.08)";
         }
-      }catch(e){
-        setConnUI(false);
       }
-    }, 400);
+      setInterval(tick, 500);
+      tick();
+    })();
+  </script>
 
+  <!-- service worker (opsional sesuai setup kamu) -->
+  <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/dyno/service-worker.js").catch(()=>{});
     }
-  });
   </script>
-
 </body>
 </html>
