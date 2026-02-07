@@ -1,18 +1,19 @@
 /* =========================================================
-   dyno-road.js — WEB UI (READ FROM FIRMWARE SNAPSHOT) [FRONT ONLY] — LOG BLOCKS
+   dyno-road.js — WEB UI (READ FROM FIRMWARE SNAPSHOT) [FRONT ONLY] — LOG BLOCKS (OPTION A)
    - Sesuai firmware A3.ino: PPR hanya FRONT, AFR/IGN/SLIP tidak ada
    - UI dipertahankan (dyno-road.html tidak perlu diubah)
    - TIME/DIST/SPEED/RPM/HP/TQ diambil dari FIRMWARE snapshot
    - START GATE: web hanya menampilkan gate_wait dari firmware
    - FIX: target jarak di grafik ikut berubah saat input jarak diubah
-   - NEW: LOG BLOCKS (maks 20 log)
-       * Setiap klik RUN / RUN dari firmware (running false->true) membuat LOG baru di paling atas
+   - LOG BLOCKS (maks 20 log)
+       * OPTION A: Log baru dibuat hanya saat DATA PERTAMA masuk (sesudah gate_wait)
+         => tidak ada log kosong
        * Setiap log punya tombol SAVE sendiri
        * Tombol SAVE bawaan = SAVE ALL (log 1..20)
-   - NEW: Tombol STOP di UI dijadikan RESET (hapus semua history/log di web)
+   - Tombol STOP di UI dijadikan RESET (hapus semua history/log di web)
 ========================================================= */
 
-console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/SLIP)");
+console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS A — NO AFR/IGN/SLIP)");
 
 (function(){
   "use strict";
@@ -72,7 +73,11 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     logSeq:0,          // auto increment
     logs:[],           // newest first
     currentLog:null,   // log object
-    prevFwRunning:false
+    prevFwRunning:false,
+
+    // OPTION A: pending log creation until first data arrives
+    pendingNewLog:false,
+    pendingLogReason:""
   };
 
   // ==========================
@@ -104,7 +109,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
 
   // kompatibilitas (kalau ada UI lama)
   window.DYNO_arm = async function(){
-    // ARM opsional; jika dipakai, tidak menghapus log (karena user mau log tetap)
     if (DYNO.running) return;
 
     readInputs();
@@ -131,13 +135,12 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
   window.DYNO_run = async function(){
     readInputs();
 
-    // kalau user tidak klik ARM, tetap boleh RUN
     DYNO.armed = true;
-
     if (DYNO.running) return;
 
-    // ===== NEW LOG dibuat saat RUN diklik =====
-    startNewLog("WEB RUN");
+    // OPTION A: jangan buat log dulu
+    DYNO.pendingNewLog = true;
+    DYNO.pendingLogReason = "WEB RUN";
 
     DYNO.running = true;
     updateState("RUN");
@@ -161,15 +164,12 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
   };
 
   // ===== STOP BUTTON DIJADIKAN RESET HISTORY (WEB) =====
-  // Tombol STOP di HTML memanggil DYNO_stop(). Sekarang fungsinya = RESET total history.
   window.DYNO_stop = async function(){
-    // kalau sedang running, stop firmware dulu
     if (DYNO.timer){
       clearInterval(DYNO.timer);
       DYNO.timer = null;
     }
 
-    // flag UI
     DYNO.running = false;
     DYNO.armed = false;
 
@@ -177,7 +177,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     updateState("RESET");
     setStatus("RESET: semua history/log dihapus.");
 
-    // stop/reset di firmware (aman dipanggil walau sudah stop)
     if (typeof window.DYNO_stop_DUAL === "function") {
       try{ await window.DYNO_stop_DUAL(); }catch(e){}
     }
@@ -185,11 +184,10 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
       try{ await window.DYNO_reset_DUAL(); }catch(e){}
     }
 
-    // hapus semua log di web
     hardResetAll(false);
   };
 
-  // RESET API masih ada kalau kamu panggil manual dari console
+  // RESET API manual
   window.DYNO_reset = async function(quiet){
     hardResetAll(!!quiet);
     if (!quiet) setStatus("RESET: semua history/log dihapus.");
@@ -208,7 +206,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
       return;
     }
 
-    // susun log ID naik (log1 paling awal)
     const asc = DYNO.logs.slice().sort((a,b)=>a.id-b.id);
 
     const lines = [];
@@ -231,14 +228,14 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
         ].join(","));
       }
 
-      if (li !== asc.length-1) lines.push(""); // spacer antar log
+      if (li !== asc.length-1) lines.push("");
     }
 
     downloadCSV(lines.join("\n"), "dyno_road_ALL_LOGS.csv");
     setStatus("SAVED: ALL LOGS (1.." + asc[asc.length-1].id + ").");
   };
 
-  // SAVE PER LOG (dipanggil dari tombol log header)
+  // SAVE PER LOG
   window.DYNO_saveLogCSV = function(logId){
     const log = findLogById(logId);
     if (!log || !log.rows.length){
@@ -275,13 +272,10 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     ids.forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
-
-      // FIX: saat input berubah, grafik ikut update sekarang juga
       el.addEventListener("input", onConfigChanged);
       el.addEventListener("change", onConfigChanged);
     });
 
-    // set initial box values
     readInputs();
     updateInfoBox();
     updateStatusProgress();
@@ -292,8 +286,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     updateInfoBox();
     updateStatusProgress();
     DYNO_draw();
-
-    // optional: push config ke ESP meskipun belum RUN (biar firmware echo ikut update)
     debouncePushConfigToESP();
   }
 
@@ -350,45 +342,30 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
       if (!snap) return;
       DYNO.lastSnap = snap;
 
-      // ---- STATE dari firmware
       const fwArmed   = !!snap.armed;
       const fwRunning = !!snap.running;
       const gateWait  = !!(snap.gate_wait ?? snap.gateWait);
 
-      // ===== NEW LOG jika firmware start (pin RUN / /run) =====
-      // Deteksi start baru: sebelumnya false, sekarang true
+      // OPTION A: kalau RUN start dari firmware (pin /run) dan bukan dari klik web,
+      // kita tetap set pendingNewLog, tapi log belum dibuat sebelum data masuk.
       if (!DYNO.prevFwRunning && fwRunning){
-        const now = Date.now();
-
-        // aturan anti double:
-        // - Jika barusan klik RUN di web, kita sudah bikin log baru.
-        //   Saat firmware benar-benar mulai running, cukup tandai _fwSeen tanpa bikin log baru lagi.
-        const cur = DYNO.currentLog;
-        const recentlyWebRun = !!(cur &&
-          cur._startedBy === "WEB RUN" &&
-          !cur._fwSeen &&
-          (now - (cur._createdAt || 0) < 4000));
-
-        if (recentlyWebRun){
-          cur._fwSeen = true;
-        } else {
-          startNewLog("FIRMWARE RUN");
-          if (DYNO.currentLog) DYNO.currentLog._fwSeen = true;
+        if (!DYNO.pendingNewLog){
+          DYNO.pendingNewLog = true;
+          DYNO.pendingLogReason = "FIRMWARE RUN";
         }
       }
-
       DYNO.prevFwRunning = fwRunning;
 
       DYNO.armed   = fwArmed;
       DYNO.running = fwRunning;
 
-      // ---- CONFIG echo dari firmware (optional)
+      // echo config
       if (isFinite(Number(snap.targetM)) && Number(snap.targetM) > 0)  DYNO.targetM  = Math.max(1, Number(snap.targetM));
       if (isFinite(Number(snap.circM))   && Number(snap.circM) > 0)    DYNO.circM    = Number(snap.circM);
       if (isFinite(Number(snap.pprFront))&& Number(snap.pprFront)>0)   DYNO.pprFront = Math.max(1, Math.round(Number(snap.pprFront)));
       if (isFinite(Number(snap.weightKg))&& Number(snap.weightKg)>0)   DYNO.weightKg = Math.max(1, Math.round(Number(snap.weightKg)));
 
-      // ---- LIVE computed FROM FIRMWARE
+      // live
       const t_s      = Number(snap.t_s ?? snap.t ?? 0);
       const dist_m   = Number(snap.dist_m ?? snap.distM ?? 0);
       const speed_km = Number(snap.speed_kmh ?? snap.speedKmh ?? 0);
@@ -397,12 +374,10 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
       DYNO.distM    = isFinite(dist_m) ? Math.max(0, dist_m) : 0;
       DYNO.speedKmh = isFinite(speed_km) ? Math.max(0, speed_km) : 0;
 
-      // ---- RPM/HP/TQ from firmware
       DYNO.rpm = Number(snap.rpm || 0) || 0;
       DYNO.tq  = Number(snap.tq  || snap.torque || 0) || 0;
       DYNO.hp  = Number(snap.hp  || snap.power  || 0) || 0;
 
-      // max from firmware jika tersedia, else track dari web
       const fwMaxHP = Number(snap.maxHP);
       const fwMaxTQ = Number(snap.maxTQ);
       if (isFinite(fwMaxHP)) DYNO.maxHP = Math.max(0, fwMaxHP);
@@ -411,7 +386,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
       if (isFinite(fwMaxTQ)) DYNO.maxTQ = Math.max(0, fwMaxTQ);
       else DYNO.maxTQ = Math.max(DYNO.maxTQ || 0, DYNO.tq || 0);
 
-      // ---- STATUS text
+      // status
       const st = String(snap.statusText || "").trim();
       if (DYNO.running && gateWait){
         updateState("RUN (WAIT 1 REV)");
@@ -428,8 +403,19 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
 
       // ---- LOG ROW (hanya saat firmware sudah mulai t berjalan)
       if (DYNO.running && !gateWait){
+        // OPTION A: buat log hanya saat data pertama akan ditulis
+        if (DYNO.pendingNewLog && !DYNO.currentLog){
+          startNewLog(DYNO.pendingLogReason || "RUN");
+          DYNO.pendingNewLog = false;
+          DYNO.pendingLogReason = "";
+        }
+        // kalau pending tapi currentLog sudah ada (misal run lanjut), matikan pending
+        if (DYNO.pendingNewLog && DYNO.currentLog){
+          DYNO.pendingNewLog = false;
+          DYNO.pendingLogReason = "";
+        }
         if (!DYNO.currentLog){
-          // safety: kalau log belum ada (misal web refresh saat run), buat log baru
+          // safety: jika tidak ada log, buat otomatis (harusnya jarang)
           startNewLog("AUTO LOG");
         }
 
@@ -444,13 +430,11 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
 
         appendRowToCurrentLog(row);
 
-        // AUTO STOP dari firmware: saat fwRunning false, stop polling tapi JANGAN hapus log
         if (!fwRunning){
           setStatus("AUTO STOP (firmware).");
           softStopKeepLogs();
         }
       } else {
-        // kalau firmware sudah stop, pastikan polling berhenti
         if (!fwRunning && DYNO.timer){
           softStopKeepLogs();
         }
@@ -468,7 +452,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     }
   }
 
-  // berhenti polling + update status, tapi tidak menghapus log
   function softStopKeepLogs(){
     if (DYNO.timer){
       clearInterval(DYNO.timer);
@@ -477,6 +460,10 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     DYNO.running = false;
     stopStatusAnim();
     updateState("STOP");
+    // jangan reset log; jangan set pending
+    DYNO.pendingNewLog = false;
+    DYNO.pendingLogReason = "";
+    DYNO.currentLog = null; // siap log baru untuk run berikutnya
   }
 
   // ==========================
@@ -489,7 +476,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
       id: DYNO.logSeq,
       rows: [],
       _startedBy: String(startReason || "RUN"),
-      _fwSeen:false,
       _createdAt: Date.now(),
       _headTr:null,
       _sepTr:null
@@ -498,15 +484,12 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     DYNO.currentLog = log;
     DYNO.logs.unshift(log);
 
-    // limit logs (hapus yang paling lama)
     while (DYNO.logs.length > MAX_LOGS){
       const old = DYNO.logs.pop();
       removeLogDom(old);
     }
 
-    // render dom for log (header + separator) di paling atas
     createLogDomAtTop(log);
-
     setStatus("LOG DATA " + log.id + " dibuat (" + log._startedBy + ").");
     updateLogInfo();
   }
@@ -537,7 +520,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     const tb = document.getElementById("d_tbody");
     if (!tb) return;
 
-    // header row
     const head = document.createElement("tr");
     head.className = "log-head";
 
@@ -590,7 +572,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     td.appendChild(wrap);
     head.appendChild(td);
 
-    // separator row
     const sep = document.createElement("tr");
     sep.className = "log-sep";
     const sd = document.createElement("td");
@@ -605,7 +586,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     sd.appendChild(line);
     sep.appendChild(sd);
 
-    // insert at top: head then (rows will insert before sep) then sep
     const first = tb.firstChild;
     if (first){
       tb.insertBefore(sep, first);
@@ -624,11 +604,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     const log = DYNO.currentLog;
     if (!log) return;
 
-    // limit rows per log
-    if (log.rows.length >= MAX_ROWS_PER_LOG){
-      // kalau penuh, jangan tambah lagi (biar ringan)
-      return;
-    }
+    if (log.rows.length >= MAX_ROWS_PER_LOG) return;
 
     const last = log.rows.length ? log.rows[log.rows.length - 1] : null;
     const changed = !last ||
@@ -639,13 +615,12 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
 
     log.rows.push(r);
 
-    // append DOM row tepat di bawah header log (sebelum separator)
     const tb = document.getElementById("d_tbody");
     if (!tb || !log._sepTr) return;
 
     const tr = document.createElement("tr");
 
-    const idx = log.rows.length; // 1-based
+    const idx = log.rows.length;
     const cells = [
       String(idx),
       (r.t||0).toFixed(3),
@@ -676,13 +651,11 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
   }
 
   function updateLogInfo(){
-    // tampilkan jumlah log + total rows
     let totalRows = 0;
     for (let i=0; i<DYNO.logs.length; i++) totalRows += DYNO.logs[i].rows.length;
     setText("d_logInfo", String(totalRows) + " rows / " + String(DYNO.logs.length) + " logs");
   }
 
-  // hard reset all logs + UI live
   function hardResetAll(quiet){
     if (DYNO.timer){
       clearInterval(DYNO.timer);
@@ -707,6 +680,9 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     DYNO.logs = [];
     DYNO.currentLog = null;
     DYNO.prevFwRunning = false;
+
+    DYNO.pendingNewLog = false;
+    DYNO.pendingLogReason = "";
 
     const tb = document.getElementById("d_tbody");
     if (tb) tb.innerHTML = "";
@@ -761,7 +737,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
   }
 
   // ==========================
-  // STATUSBAR PROGRESS (tetap dipertahankan)
+  // STATUSBAR PROGRESS
   // ==========================
   function ensureStatusProgressEl(){
     const bar = document.getElementById("d_status");
@@ -862,7 +838,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     const plotW = Math.max(10, W - PAD_L - PAD_R);
     const plotH = Math.max(10, H - PAD_T - PAD_B);
 
-    // bg
     ctx.save();
     ctx.fillStyle = "rgba(18,22,32,0.35)";
     ctx.fillRect(PAD_L, PAD_T, plotW, plotH);
@@ -872,11 +847,10 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     const rMax = DYNO.rpmEnd;
 
     const dMin = 0;
-    const dMax = Math.max(1, DYNO.targetM); // ikut target input
+    const dMax = Math.max(1, DYNO.targetM);
 
     const yMaxPower = niceMax(Math.max(1, DYNO.maxHP || 0, DYNO.maxTQ || 0, 1));
 
-    // ===== POWER GRID + LEFT LABEL =====
     ctx.lineWidth = 1;
     ctx.font = "11px Arial";
     ctx.textAlign = "right";
@@ -896,7 +870,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
       ctx.fillText(v.toFixed(0), PAD_L - 25, y);
     }
 
-    // ===== RPM ticks (horizontal light grid) =====
     const stepYRPM = 500;
     for (let rpm = roundUp(rMin, stepYRPM); rpm <= rMax; rpm += stepYRPM){
       const y = PAD_T + plotH - ((rpm - rMin) / Math.max(1,(rMax - rMin))) * plotH;
@@ -920,7 +893,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
       ctx.fillText(String(Math.round(rpm)), PAD_L - 58, y);
     }
 
-    // ===== Dist grid + bottom labels =====
     const stepM = 10;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
@@ -939,7 +911,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
       ctx.fillText(String(Math.round(m)), x, PAD_T + plotH + 8);
     }
 
-    // info text for gate wait / empty
     const gateWait = !!(DYNO.lastSnap && (DYNO.lastSnap.gate_wait ?? DYNO.lastSnap.gateWait));
     if (DYNO.running && gateWait){
       const gp = DYNO.lastSnap ? (DYNO.lastSnap.gate_pulses ?? DYNO.lastSnap.gatePulses ?? DYNO.pprFront) : DYNO.pprFront;
@@ -948,7 +919,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
       return;
     }
 
-    // untuk grafik, pakai log terbaru (currentLog) kalau ada, fallback log newest
     const logForGraph = DYNO.currentLog || (DYNO.logs.length ? DYNO.logs[0] : null);
     const rows = logForGraph ? logForGraph.rows : [];
 
@@ -960,11 +930,8 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
 
     const series = buildSeriesByDist(rows, dMin, dMax, rMin, rMax);
 
-    // curves
     drawCurveDist(series, p=>p.tq,  TQ_COLOR, yMaxPower, PAD_L, PAD_T, plotW, plotH, dMin, dMax);
     drawCurveDist(series, p=>p.hp,  HP_COLOR, yMaxPower, PAD_L, PAD_T, plotW, plotH, dMin, dMax);
-
-    // RPM curve
     drawCurveDistRPM(series, p=>p.rpm, RPM_COLOR, rMin, rMax, PAD_L, PAD_T, plotW, plotH, dMin, dMax);
 
     drawOverlayInsideGraph(ctx, PAD_L, PAD_T, plotW, plotH);
@@ -985,7 +952,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/S
     const x = x0 + w - boxW - pad;
     const y = y0 + pad;
 
-    // box bg
     ctx.fillStyle = "rgba(10,12,18,0.55)";
     ctx.strokeStyle = "rgba(255,255,255,0.14)";
     ctx.lineWidth = 1;
