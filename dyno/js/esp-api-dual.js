@@ -1,26 +1,38 @@
-console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
+/* =========================================================
+   esp-api-dual.js — REAL + AUTO SIM (HARD PULSE) [FRONT ONLY]
+   - Tidak perlu ?sim=1
+   - Tidak perlu ubah dyno-road.html
+   - AUTO:
+      * Jika ESP32 (192.168.4.1) bisa diakses => REAL mode
+      * Jika gagal beberapa kali => SIM mode (connected palsu)
+      * Jika ESP32 kembali online => balik REAL mode
+========================================================= */
 
-// =========================================================
-// esp-api-dual.js — HTTP API Wrapper (ESP32 AP: 192.168.4.1)
-// + HARD PULSE SIM MODE untuk uji dyno-road.js tanpa ESP32
-//
-// SIM MODE:
-// - aktif jika URL mengandung ?sim=1  (dyno-road.html?sim=1)
-// - simulasi keras:
-//    * pulsa roda (PPR FRONT) diskrit -> dist & speed dihitung dari pulsa
-//    * pulsa rpm diskrit -> rpm dihitung dari pulsa
-//    * gate_wait: timer mulai setelah 1 putaran (pprFront pulsa)
-// =========================================================
+console.log("✅ esp-api-dual.js dimuat (REAL + AUTO SIM HARD PULSE)");
 
 (function(){
   "use strict";
 
-  const QS = new URLSearchParams(location.search);
-  const SIM_ENABLED = (QS.get("sim") === "1");
-
   const BASE_URL = "http://192.168.4.1";
 
-  async function fetchJson(path, timeoutMs = 800){
+  // ===== Auto mode switching =====
+  const AUTO = {
+    mode: "real",          // "real" | "sim"
+    failCount: 0,
+    successCount: 0,
+
+    // switching thresholds
+    FAIL_TO_SIM: 2,        // gagal beruntun berapa kali -> masuk SIM
+    SUCCESS_TO_REAL: 2,    // sukses beruntun berapa kali -> balik REAL
+
+    // status cache
+    lastRealStatus: null,
+    lastRealSnapshot: null,
+    lastConn: { connected:false, online:false, ip:"", running:false, armed:false }
+  };
+
+  // ---- Real fetch helper (GET json)
+  async function fetchJson(path, timeoutMs = 900){
     const url = BASE_URL + path;
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -36,15 +48,41 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
   function nowMs(){
     return (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
   }
-
   function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 
+  function setMode(newMode){
+    if (AUTO.mode === newMode) return;
+    AUTO.mode = newMode;
+    if (newMode === "sim"){
+      console.log("🧪 AUTO-SIM AKTIF (ESP tidak terjangkau) => grafik & log jalan pakai SIM");
+      simResetAll(); // mulai dari bersih saat masuk SIM
+    } else {
+      console.log("🔌 REAL MODE AKTIF (ESP terjangkau) => data dari firmware");
+    }
+  }
+
+  function onRealSuccess(){
+    AUTO.failCount = 0;
+    AUTO.successCount++;
+    if (AUTO.mode === "sim" && AUTO.successCount >= AUTO.SUCCESS_TO_REAL){
+      setMode("real");
+      AUTO.successCount = 0;
+    }
+  }
+
+  function onRealFail(){
+    AUTO.successCount = 0;
+    AUTO.failCount++;
+    if (AUTO.mode === "real" && AUTO.failCount >= AUTO.FAIL_TO_SIM){
+      setMode("sim");
+      AUTO.failCount = 0;
+    }
+  }
+
   // =========================================================
-  // HARD SIM ENGINE (DISCRETE PULSES)
+  // SIM ENGINE (HARD PULSE / DISCRETE)
   // =========================================================
   const SIM = {
-    enabled: SIM_ENABLED,
-
     // connection
     online:true,
     ip:"SIM",
@@ -59,81 +97,67 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
     pprFront:1,
     weightKg:120,
 
-    // gate (1 wheel revolution = pprFront pulses)
+    // gate
     gate_wait:false,
     gate_pulses:1,
     gate_count:0,
 
-    // timer
-    t0ms:0,         // start time when gate passes
+    // timing
+    t0ms:0,
     t_s:0,
 
-    // pulses + accumulators
-    _lastMs:0,
-
-    // wheel pulse simulation
-    _wheelPulseFrac:0,
+    // motion
     dist_m:0,
-
-    // rpm pulse simulation
-    rpm:0,
-    _rpmPulseFrac:0,
-
-    // measurement windows (mirip firmware-style)
-    _wWinMs:100,     // speed window
-    _rWinMs:100,     // rpm window
-    _wWinStart:0,
-    _rWinStart:0,
-    _wPulseCount:0,
-    _rPulseCount:0,
     speed_kmh:0,
+    rpm:0,
 
-    // dyno outputs
+    // outputs
     tq:0,
     hp:0,
     maxHP:0,
     maxTQ:0,
 
-    // control
+    // internal
     _runStartMs:0,
-    _statusText:"READY",
+    _lastMs:0,
 
-    // sim profile
-    // - speed profile akan naik cepat lalu plateau
-    // - rpm profile ikut naik (bisa lebih agresif)
-    _vKmhTarget:0,
-    _rpmTarget:0,
+    // pulse accumulators
+    _wheelPulseFrac:0,
+    _rpmPulseFrac:0,
 
-    // rpm pulse per rev crank (untuk SIM saja)
-    // 1 = 1 pulsa per 1 putaran, 2 = 2 pulsa/putaran, dst.
-    rpmPPR: 1
+    // measurement windows
+    _wWinMs:100,
+    _rWinMs:100,
+    _wWinStart:0,
+    _rWinStart:0,
+    _wPulseCount:0,
+    _rPulseCount:0,
+
+    // rpm pulse per rev (SIM only)
+    rpmPPR:1,
+
+    statusText:"READY (SIM)"
   };
 
   function simResetAll(){
     SIM.armed = false;
     SIM.running = false;
 
-    SIM.gate_pulses = Math.max(1, Math.round(SIM.pprFront || 1));
+    SIM.targetM   = Number(SIM.targetM) || 200;
+    SIM.circM     = Number(SIM.circM) || 1.85;
+    SIM.pprFront  = Math.max(1, Math.round(Number(SIM.pprFront) || 1));
+    SIM.weightKg  = Math.max(1, Math.round(Number(SIM.weightKg) || 120));
+
+    SIM.gate_pulses = Math.max(1, Math.round(SIM.pprFront));
     SIM.gate_wait = false;
     SIM.gate_count = 0;
 
     SIM.t0ms = 0;
     SIM.t_s = 0;
 
-    SIM._lastMs = 0;
-
-    SIM._wheelPulseFrac = 0;
     SIM.dist_m = 0;
-
-    SIM.rpm = 0;
-    SIM._rpmPulseFrac = 0;
-
-    SIM._wWinStart = 0;
-    SIM._rWinStart = 0;
-    SIM._wPulseCount = 0;
-    SIM._rPulseCount = 0;
-
     SIM.speed_kmh = 0;
+    SIM.rpm = 0;
 
     SIM.tq = 0;
     SIM.hp = 0;
@@ -141,10 +165,17 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
     SIM.maxTQ = 0;
 
     SIM._runStartMs = 0;
-    SIM._statusText = "READY";
+    SIM._lastMs = 0;
 
-    SIM._vKmhTarget = 0;
-    SIM._rpmTarget = 0;
+    SIM._wheelPulseFrac = 0;
+    SIM._rpmPulseFrac = 0;
+
+    SIM._wWinStart = 0;
+    SIM._rWinStart = 0;
+    SIM._wPulseCount = 0;
+    SIM._rPulseCount = 0;
+
+    SIM.statusText = "READY (SIM)";
   }
 
   function simConfig(cfg){
@@ -159,25 +190,17 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
     if (isFinite(p) && p > 0) SIM.pprFront = Math.max(1, Math.round(p));
     if (isFinite(w) && w > 0) SIM.weightKg = Math.max(1, Math.round(w));
 
-    SIM.gate_pulses = Math.max(1, Math.round(SIM.pprFront || 1));
-
-    return {
-      ok:true,
-      targetM:SIM.targetM,
-      circM:SIM.circM,
-      pprFront:SIM.pprFront,
-      weightKg:SIM.weightKg
-    };
+    SIM.gate_pulses = Math.max(1, Math.round(SIM.pprFront));
+    return { ok:true, targetM:SIM.targetM, circM:SIM.circM, pprFront:SIM.pprFront, weightKg:SIM.weightKg };
   }
 
   function simArm(){
     SIM.armed = true;
-    SIM._statusText = "ARMED (SIM)";
+    SIM.statusText = "ARMED (SIM)";
     return { ok:true, armed:true, running:SIM.running };
   }
 
   function simRun(){
-    // start RUN: gate_wait until 1 wheel revolution (pprFront pulses)
     const ms = nowMs();
 
     SIM.armed = true;
@@ -190,33 +213,27 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
     SIM.gate_wait = true;
     SIM.gate_count = 0;
 
-    // reset timeline for run
     SIM.t0ms = 0;
     SIM.t_s = 0;
 
-    // reset dist & windows
     SIM.dist_m = 0;
     SIM.speed_kmh = 0;
-
-    SIM._wheelPulseFrac = 0;
-    SIM._wWinStart = ms;
-    SIM._wPulseCount = 0;
-
     SIM.rpm = 0;
-    SIM._rpmPulseFrac = 0;
-    SIM._rWinStart = ms;
-    SIM._rPulseCount = 0;
 
     SIM.tq = 0;
     SIM.hp = 0;
     SIM.maxHP = 0;
     SIM.maxTQ = 0;
 
-    SIM._vKmhTarget = 0;
-    SIM._rpmTarget = 0;
+    SIM._wheelPulseFrac = 0;
+    SIM._rpmPulseFrac = 0;
 
-    SIM._statusText = "RUN: gate_wait (SIM)";
+    SIM._wWinStart = ms;
+    SIM._rWinStart = ms;
+    SIM._wPulseCount = 0;
+    SIM._rPulseCount = 0;
 
+    SIM.statusText = "RUN: gate_wait (SIM)";
     return { ok:true, armed:true, running:true, gate_wait:true, gate_pulses:SIM.gate_pulses };
   }
 
@@ -224,138 +241,100 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
     SIM.running = false;
     SIM.armed = false;
     SIM.gate_wait = false;
-    SIM._statusText = "STOP (SIM)";
+    SIM.statusText = "STOP (SIM)";
     return { ok:true, armed:false, running:false };
   }
 
-  // torque curve vs RPM (kasar tapi “dyno-like”)
   function torqueFromRPM(rpm){
-    // puncak torsi di tengah
-    // baseline + bump, turun di rpm tinggi
     rpm = clamp(rpm, 0, 22000);
-    const x = rpm / 20000; // 0..1
-    const bump = Math.sin(Math.PI * clamp(x,0,1)); // 0..1..0
-    const base = 16; // Nm
-    const peak = 14; // tambahan
-    return base + peak * bump;
+    const x = clamp(rpm / 20000, 0, 1);
+    const bump = Math.sin(Math.PI * x);
+    return 16 + 14 * bump; // 16..30..16
   }
 
-  // speed profile target (km/h) vs time (detik) + weight
-  function speedTargetKmh(t_s){
-    // cepat naik lalu melandai
-    const w = clamp((Number(SIM.weightKg)||120), 30, 500);
-    const vmax = 120 - clamp((w - 80) * 0.10, 0, 60); // beban naik => vmax turun
-    const a = 70; // km/h per detik (agresif)
-    const v = a * t_s;
-    return clamp(v, 0, vmax);
+  function speedTargetKmh(runT_s, weightKg){
+    const w = clamp(Number(weightKg)||120, 30, 500);
+    const vmax = 120 - clamp((w - 80) * 0.10, 0, 60);
+    const a = 70;
+    return clamp(a * runT_s, 0, vmax);
   }
 
-  // rpm target vs speed (biar “keras” ikut naik)
   function rpmTargetFromSpeed(vKmh){
-    // 2000 -> 18000
     const x = clamp(vKmh / 120, 0, 1);
-    // easing
     const e = x < 0.5 ? 2*x*x : 1 - Math.pow(-2*x + 2, 2)/2;
     return 2000 + e * 16000;
   }
 
-  // HARD pulse generator step
-  function simStep(dt, msNow){
-    // dt in seconds
+  function simStep(dt_s, msNow){
+    const circ = Math.max(0.05, Number(SIM.circM) || 1.85);
+    const ppr  = Math.max(1, Math.round(Number(SIM.pprFront) || 1));
+    const targetM = Math.max(1, Number(SIM.targetM) || 200);
 
-    // jika gate_wait: kita tetap generate pulsa roda,
-    // tapi timer t_s belum berjalan sampai gate_count mencapai gate_pulses
-    // jadi: selama gate_wait, speed & dist tetap bisa bergerak (opsional),
-    // namun firmware kamu biasanya mulai timer setelah 1 rev.
-    // Di sini: dist dihitung tetap, tetapi t_s = 0 sampai gate selesai.
-    // (dyno-road.js kamu hanya log saat gate_wait false, jadi aman)
-    const circ = Math.max(0.01, Number(SIM.circM)||1.85);
-    const ppr = Math.max(1, Math.round(Number(SIM.pprFront)||1));
-
-    // update target speed (agresif) berdasarkan "waktu run total"
     const runT = Math.max(0, (msNow - SIM._runStartMs) / 1000);
-    SIM._vKmhTarget = speedTargetKmh(runT);
+    const vTargetKmh = speedTargetKmh(runT, SIM.weightKg);
 
-    // convert to wheel rev/s
-    const v_mps = (SIM._vKmhTarget * 1000) / 3600;
-    const wheelRevPerSec = v_mps / circ; // rev/s
-
-    // pulses per second = wheelRevPerSec * ppr
+    // wheel pulses
+    const v_mps = (vTargetKmh * 1000) / 3600;
+    const wheelRevPerSec = v_mps / circ;
     const wheelPps = wheelRevPerSec * ppr;
 
-    // accumulate fractional pulses
-    SIM._wheelPulseFrac += wheelPps * dt;
+    SIM._wheelPulseFrac += wheelPps * dt_s;
 
-    // generate integer pulses
     let newWheelPulses = 0;
     if (SIM._wheelPulseFrac >= 1){
       newWheelPulses = Math.floor(SIM._wheelPulseFrac);
       SIM._wheelPulseFrac -= newWheelPulses;
     }
 
-    // apply wheel pulses
     if (newWheelPulses > 0){
-      // distance per pulse
       const distPerPulse = circ / ppr;
       SIM.dist_m += newWheelPulses * distPerPulse;
 
-      // window count for speed measurement
       SIM._wPulseCount += newWheelPulses;
 
-      // gate counting
       if (SIM.gate_wait){
         SIM.gate_count += newWheelPulses;
         if (SIM.gate_count >= SIM.gate_pulses){
-          // gate selesai -> start timer
           SIM.gate_wait = false;
           SIM.t0ms = msNow;
           SIM.t_s = 0;
-          SIM._statusText = "RUNNING (SIM)";
-          // reset measurement windows at gate start (biar lebih mirip)
+          SIM.statusText = "RUNNING (SIM)";
+
           SIM._wWinStart = msNow;
           SIM._wPulseCount = 0;
-
           SIM._rWinStart = msNow;
           SIM._rPulseCount = 0;
         }
       }
     }
 
-    // update timer if gate passed
     if (!SIM.gate_wait && SIM.t0ms > 0){
       SIM.t_s = Math.max(0, (msNow - SIM.t0ms) / 1000);
     } else {
       SIM.t_s = 0;
     }
 
-    // compute RPM target
-    SIM._rpmTarget = rpmTargetFromSpeed(SIM._vKmhTarget);
-
-    // RPM pulse generation (discrete)
-    // pulses per second = (rpm/60 rev/s) * rpmPPR
-    const rpmPPR = Math.max(1, Math.round(Number(SIM.rpmPPR)||1));
-    const rpmRevPerSec = (SIM._rpmTarget / 60);
+    // rpm pulses
+    const rpmTarget = rpmTargetFromSpeed(vTargetKmh);
+    const rpmPPR = Math.max(1, Math.round(Number(SIM.rpmPPR) || 1));
+    const rpmRevPerSec = rpmTarget / 60;
     const rpmPps = rpmRevPerSec * rpmPPR;
 
-    SIM._rpmPulseFrac += rpmPps * dt;
+    SIM._rpmPulseFrac += rpmPps * dt_s;
 
     let newRpmPulses = 0;
     if (SIM._rpmPulseFrac >= 1){
       newRpmPulses = Math.floor(SIM._rpmPulseFrac);
       SIM._rpmPulseFrac -= newRpmPulses;
     }
-
     if (newRpmPulses > 0){
       SIM._rPulseCount += newRpmPulses;
     }
 
-    // ===== measurement window update for SPEED =====
+    // speed window
     if ((msNow - SIM._wWinStart) >= SIM._wWinMs){
       const winDt = (msNow - SIM._wWinStart) / 1000;
       const pulses = SIM._wPulseCount;
-
-      // speed from pulses in window:
-      // dist = pulses/ppr * circ
       const distWin = (pulses / ppr) * circ;
       const vWin_mps = distWin / Math.max(1e-6, winDt);
       SIM.speed_kmh = vWin_mps * 3.6;
@@ -364,15 +343,11 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
       SIM._wPulseCount = 0;
     }
 
-    // ===== measurement window update for RPM =====
+    // rpm window
     if ((msNow - SIM._rWinStart) >= SIM._rWinMs){
       const winDt = (msNow - SIM._rWinStart) / 1000;
       const pulses = SIM._rPulseCount;
 
-      // rpm from pulses in window:
-      // rev = pulses / rpmPPR
-      // rps = rev / dt
-      // rpm = rps*60
       const rev = pulses / rpmPPR;
       const rps = rev / Math.max(1e-6, winDt);
       SIM.rpm = rps * 60;
@@ -381,28 +356,20 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
       SIM._rPulseCount = 0;
     }
 
-    // dyno outputs (tq curve + hp from tq/rpm)
-    const tq = torqueFromRPM(SIM.rpm);
-    SIM.tq = tq;
-
-    // HP = tq(Nm) * rpm / 7127
+    SIM.tq = torqueFromRPM(SIM.rpm);
     SIM.hp = (SIM.tq * SIM.rpm) / 7127;
 
     SIM.maxHP = Math.max(SIM.maxHP || 0, SIM.hp || 0);
     SIM.maxTQ = Math.max(SIM.maxTQ || 0, SIM.tq || 0);
 
-    // auto stop at target distance
-    const target = Math.max(1, Number(SIM.targetM)||1);
-    if (SIM.dist_m >= target){
-      SIM.dist_m = target;
+    if (SIM.dist_m >= targetM){
+      SIM.dist_m = targetM;
       SIM.running = false;
       SIM.armed = false;
       SIM.gate_wait = false;
-      SIM._statusText = "AUTO STOP (SIM)";
+      SIM.statusText = "AUTO STOP (SIM)";
     } else {
-      if (SIM.running){
-        SIM._statusText = SIM.gate_wait ? "RUN: gate_wait (SIM)" : "RUNNING (SIM)";
-      }
+      SIM.statusText = SIM.gate_wait ? "RUN: gate_wait (SIM)" : "RUNNING (SIM)";
     }
   }
 
@@ -427,16 +394,14 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
         maxHP:SIM.maxHP,
         maxTQ:SIM.maxTQ,
 
-        statusText:SIM._statusText
+        statusText:SIM.statusText
       };
     }
 
-    // running
     const last = SIM._lastMs || ms;
     const dt = clamp((ms - last) / 1000, 0, 0.2);
     SIM._lastMs = ms;
 
-    // step simulation
     simStep(dt, ms);
 
     return {
@@ -456,20 +421,17 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
       maxHP:SIM.maxHP,
       maxTQ:SIM.maxTQ,
 
-      statusText:SIM._statusText
+      statusText:SIM.statusText
     };
   }
 
-  if (SIM.enabled){
-    simResetAll();
-    console.log("🧪 SIM MODE AKTIF (HARD PULSE): pakai ?sim=1");
-  }
+  // =========================================================
+  // PUBLIC API (dipakai dyno-road.js)
+  // =========================================================
 
-  // =========================================================
-  // API YANG DIPAKAI dyno-road.js
-  // =========================================================
   window.DYNO_getConn_DUAL = async function(){
-    if (SIM.enabled){
+    // kalau lagi SIM mode: always connected
+    if (AUTO.mode === "sim"){
       return {
         connected:true,
         online:true,
@@ -480,11 +442,16 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
       };
     }
 
+    // REAL: coba /status
     try{
-      const s = await fetchJson("/status", 800);
+      const s = await fetchJson("/status", 900);
+      AUTO.lastRealStatus = s;
+      onRealSuccess();
+
       const online = !!(s && s.online);
-      const ip = (s && s.ip) ? String(s.ip) : BASE_URL.replace("http://", "");
-      return {
+      const ip = (s && s.ip) ? String(s.ip) : BASE_URL.replace("http://","");
+
+      const conn = {
         connected: online,
         online,
         ip,
@@ -492,66 +459,156 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + HARD PULSE SIM)");
         armed:   !!(s && s.armed),
         raw: s
       };
-    }catch(e){
+      AUTO.lastConn = conn;
+      return conn;
+
+    } catch(e){
+      onRealFail();
+
+      // kalau setelah fail masuk SIM, return SIM connected
+      if (AUTO.mode === "sim"){
+        return {
+          connected:true,
+          online:true,
+          ip:"SIM",
+          running:!!SIM.running,
+          armed:!!SIM.armed,
+          raw:{ online:true, ip:"SIM", running:SIM.running, armed:SIM.armed }
+        };
+      }
+
       return { connected:false, online:false, ip:"", running:false, armed:false };
     }
   };
 
   window.DYNO_getSnapshot_DUAL = async function(){
-    if (SIM.enabled){
+    // SIM mode
+    if (AUTO.mode === "sim"){
       return simSnapshot();
     }
-    return await fetchJson("/snapshot", 800);
+
+    // REAL mode
+    try{
+      const snap = await fetchJson("/snapshot", 900);
+      AUTO.lastRealSnapshot = snap;
+      onRealSuccess();
+      return snap;
+    } catch(e){
+      onRealFail();
+      if (AUTO.mode === "sim"){
+        return simSnapshot();
+      }
+      return null;
+    }
   };
 
   window.DYNO_setConfig_DUAL = async function(cfg){
     cfg = cfg || {};
 
-    if (SIM.enabled){
-      return simConfig(cfg);
+    // selalu update config SIM juga (biar kalau pindah mode nggak aneh)
+    simConfig(cfg);
+
+    if (AUTO.mode === "sim"){
+      return { ok:true, targetM:SIM.targetM, circM:SIM.circM, pprFront:SIM.pprFront, weightKg:SIM.weightKg, sim:true };
     }
 
-    const targetM  = Number(cfg.targetM ?? 200);
-    const circM    = Number(cfg.circM ?? 1.85);
-    const pprFront = Number(cfg.pprFront ?? 1);
-    const weightKg = Number(cfg.weightKg ?? 120);
+    // REAL request /config
+    try{
+      const targetM  = Number(cfg.targetM ?? 200);
+      const circM    = Number(cfg.circM ?? 1.85);
+      const pprFront = Number(cfg.pprFront ?? 1);
+      const weightKg = Number(cfg.weightKg ?? 120);
 
-    const qs =
-      "?targetM="  + encodeURIComponent(targetM) +
-      "&circM="    + encodeURIComponent(circM) +
-      "&pprFront=" + encodeURIComponent(pprFront) +
-      "&weightKg=" + encodeURIComponent(weightKg);
+      const qs =
+        "?targetM="  + encodeURIComponent(targetM) +
+        "&circM="    + encodeURIComponent(circM) +
+        "&pprFront=" + encodeURIComponent(pprFront) +
+        "&weightKg=" + encodeURIComponent(weightKg);
 
-    return await fetchJson("/config" + qs, 1000);
+      const r = await fetchJson("/config" + qs, 1200);
+      onRealSuccess();
+      return r;
+    } catch(e){
+      onRealFail();
+      if (AUTO.mode === "sim"){
+        return { ok:true, targetM:SIM.targetM, circM:SIM.circM, pprFront:SIM.pprFront, weightKg:SIM.weightKg, sim:true };
+      }
+      return { ok:false, err:"config failed" };
+    }
   };
 
   window.DYNO_run_DUAL = async function(){
-    if (SIM.enabled){
+    if (AUTO.mode === "sim"){
       return simRun();
     }
-    return await fetchJson("/run", 1000);
+    try{
+      const r = await fetchJson("/run", 1200);
+      onRealSuccess();
+      return r;
+    } catch(e){
+      onRealFail();
+      if (AUTO.mode === "sim") return simRun();
+      return { ok:false, err:"run failed" };
+    }
   };
 
   window.DYNO_arm_DUAL = async function(){
-    if (SIM.enabled){
+    if (AUTO.mode === "sim"){
       return simArm();
     }
-    return await fetchJson("/arm", 1000);
+    try{
+      const r = await fetchJson("/arm", 1200);
+      onRealSuccess();
+      return r;
+    } catch(e){
+      onRealFail();
+      if (AUTO.mode === "sim") return simArm();
+      return { ok:false, err:"arm failed" };
+    }
   };
 
   window.DYNO_stop_DUAL = async function(){
-    if (SIM.enabled){
+    if (AUTO.mode === "sim"){
       return simStop();
     }
-    return await fetchJson("/stop", 1000);
+    try{
+      const r = await fetchJson("/stop", 1200);
+      onRealSuccess();
+      return r;
+    } catch(e){
+      onRealFail();
+      if (AUTO.mode === "sim") return simStop();
+      return { ok:false, err:"stop failed" };
+    }
   };
 
   window.DYNO_reset_DUAL = async function(){
-    if (SIM.enabled){
-      simResetAll();
-      return { ok:true, reset:true };
+    // reset SIM selalu
+    simResetAll();
+
+    if (AUTO.mode === "sim"){
+      return { ok:true, reset:true, sim:true };
     }
-    return await fetchJson("/reset", 1000);
+    try{
+      const r = await fetchJson("/reset", 1200);
+      onRealSuccess();
+      return r;
+    } catch(e){
+      onRealFail();
+      if (AUTO.mode === "sim") return { ok:true, reset:true, sim:true };
+      return { ok:false, err:"reset failed" };
+    }
   };
+
+  // init mode decision cepat: coba ping status sekali (tanpa nunggu user klik)
+  (async () => {
+    try{
+      await fetchJson("/status", 700);
+      setMode("real");
+      onRealSuccess();
+    } catch(e){
+      setMode("sim");
+    }
+  })();
 
 })();
