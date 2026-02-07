@@ -1,19 +1,25 @@
 /* =========================================================
-   dyno-road.js — WEB UI (READ FROM FIRMWARE SNAPSHOT) [FRONT ONLY]
-   - Sesuai firmware A3.ino: PPR hanya FRONT, AFR+IGN tidak ada
-   - UI dipertahankan (HTML tidak perlu diubah)
+   dyno-road.js — WEB UI (READ FROM FIRMWARE SNAPSHOT) [FRONT ONLY] — LOG BLOCKS
+   - Sesuai firmware A3.ino: PPR hanya FRONT, AFR/IGN/SLIP tidak ada
+   - UI dipertahankan (dyno-road.html tidak perlu diubah)
    - TIME/DIST/SPEED/RPM/HP/TQ diambil dari FIRMWARE snapshot
    - START GATE: web hanya menampilkan gate_wait dari firmware
    - FIX: target jarak di grafik ikut berubah saat input jarak diubah
+   - NEW: LOG BLOCKS (maks 20 log)
+       * Setiap klik RUN / RUN dari firmware (running false->true) membuat LOG baru di paling atas
+       * Setiap log punya tombol SAVE sendiri
+       * Tombol SAVE bawaan = SAVE ALL (log 1..20)
+   - NEW: Tombol STOP di UI dijadikan RESET (hapus semua history/log di web)
 ========================================================= */
 
-console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
+console.log("✅ dyno-road.js dimuat (FRONT ONLY — LOG BLOCKS — NO AFR/IGN/SLIP)");
 
 (function(){
   "use strict";
 
-  const UI_POLL_MS     = 16;
-  const MAX_TABLE_ROWS = 800;
+  const UI_POLL_MS       = 16;
+  const MAX_ROWS_PER_LOG = 800;
+  const MAX_LOGS         = 20;
 
   // RPM range (untuk axis)
   const FIXED_RPM_START = 2000;
@@ -50,7 +56,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     // raw snapshot cache
     lastSnap:null,
 
-    rows:[],
     timer:null,
     polling:false,
 
@@ -61,7 +66,13 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     c:null, ctx:null, W:0, H:0,
 
     // config push debounce
-    cfgPushTimer:null
+    cfgPushTimer:null,
+
+    // ===== LOG SYSTEM =====
+    logSeq:0,          // auto increment
+    logs:[],           // newest first
+    currentLog:null,   // log object
+    prevFwRunning:false
   };
 
   // ==========================
@@ -80,22 +91,23 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
 
     bindInputs();
     DYNO_resizeCanvas();
-    DYNO_reset(true);
-    updateState("READY");
 
+    // reset UI state + bersihkan history awal
+    hardResetAll(true);
+
+    updateState("READY");
     ensureStatusProgressEl();
     setStatus("READY");
-
     updateStatusProgress();
     DYNO_draw();
   };
 
   // kompatibilitas (kalau ada UI lama)
   window.DYNO_arm = async function(){
+    // ARM opsional; jika dipakai, tidak menghapus log (karena user mau log tetap)
     if (DYNO.running) return;
 
     readInputs();
-    DYNO_reset(true);
 
     DYNO.armed = true;
     updateState("ARMED");
@@ -104,16 +116,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     setStatus("ARMED: siap RUN. Target = " + DYNO.targetM + " m");
 
     // kirim config + arm (opsional)
-    if (typeof window.DYNO_setConfig_DUAL === "function") {
-      try{
-        await window.DYNO_setConfig_DUAL({
-          targetM: DYNO.targetM,
-          circM: DYNO.circM,
-          pprFront: DYNO.pprFront,
-          weightKg: DYNO.weightKg
-        });
-      }catch(e){}
-    }
+    await pushConfigToESP();
 
     if (typeof window.DYNO_arm_DUAL === "function") {
       try{ await window.DYNO_arm_DUAL(); }catch(e){}
@@ -124,7 +127,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     DYNO_draw();
   };
 
-  // HTML kamu sekarang pakai RUN langsung
+  // HTML kamu pakai RUN langsung
   window.DYNO_run = async function(){
     readInputs();
 
@@ -133,25 +136,18 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
 
     if (DYNO.running) return;
 
-    DYNO.running = true;
+    // ===== NEW LOG dibuat saat RUN diklik =====
+    startNewLog("WEB RUN");
 
+    DYNO.running = true;
     updateState("RUN");
     ensureStatusProgressEl();
     setStatus("RUN: firmware mulai timer setelah 1 putaran roda depan.");
 
     startStatusAnim();
 
-    // kirim config (sesuai esp-api-dual.js: {targetM,circM,pprFront,weightKg})
-    if (typeof window.DYNO_setConfig_DUAL === "function") {
-      try{
-        await window.DYNO_setConfig_DUAL({
-          targetM: DYNO.targetM,
-          circM: DYNO.circM,
-          pprFront: DYNO.pprFront,
-          weightKg: DYNO.weightKg
-        });
-      }catch(e){}
-    }
+    // kirim config + run
+    await pushConfigToESP();
 
     if (typeof window.DYNO_run_DUAL === "function") {
       try{ await window.DYNO_run_DUAL(); }catch(e){}
@@ -164,31 +160,39 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     DYNO_draw();
   };
 
+  // ===== STOP BUTTON DIJADIKAN RESET HISTORY (WEB) =====
+  // Tombol STOP di HTML memanggil DYNO_stop(). Sekarang fungsinya = RESET total history.
   window.DYNO_stop = async function(){
+    // kalau sedang running, stop firmware dulu
     if (DYNO.timer){
       clearInterval(DYNO.timer);
       DYNO.timer = null;
     }
 
+    // flag UI
     DYNO.running = false;
     DYNO.armed = false;
 
     stopStatusAnim();
+    updateState("RESET");
+    setStatus("RESET: semua history/log dihapus.");
 
-    updateState("STOP");
-    setStatus("STOP. Data tersimpan di tabel (belum dihapus).");
-
-    updateStatusProgress();
-    DYNO_draw();
-
+    // stop/reset di firmware (aman dipanggil walau sudah stop)
     if (typeof window.DYNO_stop_DUAL === "function") {
       try{ await window.DYNO_stop_DUAL(); }catch(e){}
     }
+    if (typeof window.DYNO_reset_DUAL === "function") {
+      try{ await window.DYNO_reset_DUAL(); }catch(e){}
+    }
+
+    // hapus semua log di web
+    hardResetAll(false);
   };
 
+  // RESET API masih ada kalau kamu panggil manual dari console
   window.DYNO_reset = async function(quiet){
-    DYNO_reset(!!quiet);
-    if (!quiet) setStatus("RESET.");
+    hardResetAll(!!quiet);
+    if (!quiet) setStatus("RESET: semua history/log dihapus.");
     updateStatusProgress();
     DYNO_draw();
 
@@ -197,18 +201,57 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     }
   };
 
+  // SAVE ALL = gabung semua log (log 1..20)
   window.DYNO_saveCSV = function(){
-    if (!DYNO.rows.length){
+    if (!DYNO.logs.length){
       setStatus("DATA KOSONG. RUN dulu.");
       return;
     }
 
-    // 7 kolom sesuai dyno-road.html (No, time, rpm, hp, tq, speed, dist)
+    // susun log ID naik (log1 paling awal)
+    const asc = DYNO.logs.slice().sort((a,b)=>a.id-b.id);
+
     const lines = [];
+    for (let li=0; li<asc.length; li++){
+      const log = asc[li];
+
+      lines.push("LOG DATA " + log.id);
+      lines.push(["no","time_s","rpm","hp","tq_nm","speed_kmh","dist_m"].join(","));
+
+      for (let i=0; i<log.rows.length; i++){
+        const r = log.rows[i];
+        lines.push([
+          (i+1),
+          (r.t||0).toFixed(3),
+          Math.round(r.rpm||0),
+          (r.hp||0).toFixed(2),
+          (r.tq||0).toFixed(2),
+          (r.spd||0).toFixed(3),
+          (r.dist||0).toFixed(3)
+        ].join(","));
+      }
+
+      if (li !== asc.length-1) lines.push(""); // spacer antar log
+    }
+
+    downloadCSV(lines.join("\n"), "dyno_road_ALL_LOGS.csv");
+    setStatus("SAVED: ALL LOGS (1.." + asc[asc.length-1].id + ").");
+  };
+
+  // SAVE PER LOG (dipanggil dari tombol log header)
+  window.DYNO_saveLogCSV = function(logId){
+    const log = findLogById(logId);
+    if (!log || !log.rows.length){
+      setStatus("LOG KOSONG.");
+      return;
+    }
+
+    const lines = [];
+    lines.push("LOG DATA " + log.id);
     lines.push(["no","time_s","rpm","hp","tq_nm","speed_kmh","dist_m"].join(","));
 
-    for (let i=0; i<DYNO.rows.length; i++){
-      const r = DYNO.rows[i];
+    for (let i=0; i<log.rows.length; i++){
+      const r = log.rows[i];
       lines.push([
         (i+1),
         (r.t||0).toFixed(3),
@@ -220,15 +263,8 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
       ].join(","));
     }
 
-    const blob = new Blob([lines.join("\n")], {type:"text/csv"});
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "dyno_road.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(a.href);
-    setStatus("SAVED (CSV).");
+    downloadCSV(lines.join("\n"), "dyno_road_LOG_" + log.id + ".csv");
+    setStatus("SAVED: LOG " + log.id + ".");
   };
 
   // ==========================
@@ -265,17 +301,20 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     if (DYNO.cfgPushTimer) clearTimeout(DYNO.cfgPushTimer);
     DYNO.cfgPushTimer = setTimeout(async () => {
       DYNO.cfgPushTimer = null;
-      if (typeof window.DYNO_setConfig_DUAL !== "function") return;
-
-      try{
-        await window.DYNO_setConfig_DUAL({
-          targetM: DYNO.targetM,
-          circM: DYNO.circM,
-          pprFront: DYNO.pprFront,
-          weightKg: DYNO.weightKg
-        });
-      }catch(e){}
+      await pushConfigToESP();
     }, 250);
+  }
+
+  async function pushConfigToESP(){
+    if (typeof window.DYNO_setConfig_DUAL !== "function") return;
+    try{
+      await window.DYNO_setConfig_DUAL({
+        targetM: DYNO.targetM,
+        circM: DYNO.circM,
+        pprFront: DYNO.pprFront,
+        weightKg: DYNO.weightKg
+      });
+    }catch(e){}
   }
 
   function readInputs(){
@@ -316,12 +355,34 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
       const fwRunning = !!snap.running;
       const gateWait  = !!(snap.gate_wait ?? snap.gateWait);
 
+      // ===== NEW LOG jika firmware start (pin RUN / /run) =====
+      // Deteksi start baru: sebelumnya false, sekarang true
+      if (!DYNO.prevFwRunning && fwRunning){
+        const now = Date.now();
+
+        // aturan anti double:
+        // - Jika barusan klik RUN di web, kita sudah bikin log baru.
+        //   Saat firmware benar-benar mulai running, cukup tandai _fwSeen tanpa bikin log baru lagi.
+        const cur = DYNO.currentLog;
+        const recentlyWebRun = !!(cur &&
+          cur._startedBy === "WEB RUN" &&
+          !cur._fwSeen &&
+          (now - (cur._createdAt || 0) < 4000));
+
+        if (recentlyWebRun){
+          cur._fwSeen = true;
+        } else {
+          startNewLog("FIRMWARE RUN");
+          if (DYNO.currentLog) DYNO.currentLog._fwSeen = true;
+        }
+      }
+
+      DYNO.prevFwRunning = fwRunning;
+
       DYNO.armed   = fwArmed;
       DYNO.running = fwRunning;
 
-      // ---- CONFIG echo dari firmware
-      // Catatan: kita tetap boleh terima echo, tapi input web sudah jadi master saat user ubah
-      // Jadi: hanya update jika firmware kirim angka valid (dan tidak nol)
+      // ---- CONFIG echo dari firmware (optional)
       if (isFinite(Number(snap.targetM)) && Number(snap.targetM) > 0)  DYNO.targetM  = Math.max(1, Number(snap.targetM));
       if (isFinite(Number(snap.circM))   && Number(snap.circM) > 0)    DYNO.circM    = Number(snap.circM);
       if (isFinite(Number(snap.pprFront))&& Number(snap.pprFront)>0)   DYNO.pprFront = Math.max(1, Math.round(Number(snap.pprFront)));
@@ -345,10 +406,10 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
       const fwMaxHP = Number(snap.maxHP);
       const fwMaxTQ = Number(snap.maxTQ);
       if (isFinite(fwMaxHP)) DYNO.maxHP = Math.max(0, fwMaxHP);
-      else if (isFinite(DYNO.hp)) DYNO.maxHP = Math.max(DYNO.maxHP || 0, DYNO.hp || 0);
+      else DYNO.maxHP = Math.max(DYNO.maxHP || 0, DYNO.hp || 0);
 
       if (isFinite(fwMaxTQ)) DYNO.maxTQ = Math.max(0, fwMaxTQ);
-      else if (isFinite(DYNO.tq)) DYNO.maxTQ = Math.max(DYNO.maxTQ || 0, DYNO.tq || 0);
+      else DYNO.maxTQ = Math.max(DYNO.maxTQ || 0, DYNO.tq || 0);
 
       // ---- STATUS text
       const st = String(snap.statusText || "").trim();
@@ -365,8 +426,13 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
         if (st) setStatus(st);
       }
 
-      // ---- LOG ROW ke tabel (hanya saat firmware sudah mulai t berjalan)
+      // ---- LOG ROW (hanya saat firmware sudah mulai t berjalan)
       if (DYNO.running && !gateWait){
+        if (!DYNO.currentLog){
+          // safety: kalau log belum ada (misal web refresh saat run), buat log baru
+          startNewLog("AUTO LOG");
+        }
+
         const row = {
           t: DYNO.t,
           rpm: DYNO.rpm,
@@ -376,20 +442,17 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
           spd: DYNO.speedKmh
         };
 
-        const last = DYNO.rows.length ? DYNO.rows[DYNO.rows.length - 1] : null;
-        const changed = !last ||
-          (Math.abs((row.t||0) - (last.t||0)) > 0.005) ||
-          (Math.abs((row.dist||0) - (last.dist||0)) > 0.01);
+        appendRowToCurrentLog(row);
 
-        if (changed){
-          DYNO.rows.push(row);
-          appendRowFast(row);
-        }
-
-        // AUTO STOP dari firmware: saat snap.running false, stop polling
+        // AUTO STOP dari firmware: saat fwRunning false, stop polling tapi JANGAN hapus log
         if (!fwRunning){
           setStatus("AUTO STOP (firmware).");
-          window.DYNO_stop();
+          softStopKeepLogs();
+        }
+      } else {
+        // kalau firmware sudah stop, pastikan polling berhenti
+        if (!fwRunning && DYNO.timer){
+          softStopKeepLogs();
         }
       }
 
@@ -403,6 +466,257 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     }finally{
       DYNO.polling = false;
     }
+  }
+
+  // berhenti polling + update status, tapi tidak menghapus log
+  function softStopKeepLogs(){
+    if (DYNO.timer){
+      clearInterval(DYNO.timer);
+      DYNO.timer = null;
+    }
+    DYNO.running = false;
+    stopStatusAnim();
+    updateState("STOP");
+  }
+
+  // ==========================
+  // LOG SYSTEM
+  // ==========================
+  function startNewLog(startReason){
+    DYNO.logSeq += 1;
+
+    const log = {
+      id: DYNO.logSeq,
+      rows: [],
+      _startedBy: String(startReason || "RUN"),
+      _fwSeen:false,
+      _createdAt: Date.now(),
+      _headTr:null,
+      _sepTr:null
+    };
+
+    DYNO.currentLog = log;
+    DYNO.logs.unshift(log);
+
+    // limit logs (hapus yang paling lama)
+    while (DYNO.logs.length > MAX_LOGS){
+      const old = DYNO.logs.pop();
+      removeLogDom(old);
+    }
+
+    // render dom for log (header + separator) di paling atas
+    createLogDomAtTop(log);
+
+    setStatus("LOG DATA " + log.id + " dibuat (" + log._startedBy + ").");
+    updateLogInfo();
+  }
+
+  function findLogById(id){
+    id = Number(id);
+    for (let i=0; i<DYNO.logs.length; i++){
+      if (DYNO.logs[i].id === id) return DYNO.logs[i];
+    }
+    return null;
+  }
+
+  function removeLogDom(log){
+    if (!log) return;
+    try{
+      if (log._headTr && log._headTr.parentNode) log._headTr.parentNode.removeChild(log._headTr);
+      if (log._sepTr && log._sepTr.parentNode) log._sepTr.parentNode.removeChild(log._sepTr);
+      if (log._rowsTr && log._rowsTr.length){
+        for (let i=0; i<log._rowsTr.length; i++){
+          const tr = log._rowsTr[i];
+          if (tr && tr.parentNode) tr.parentNode.removeChild(tr);
+        }
+      }
+    }catch(e){}
+  }
+
+  function createLogDomAtTop(log){
+    const tb = document.getElementById("d_tbody");
+    if (!tb) return;
+
+    // header row
+    const head = document.createElement("tr");
+    head.className = "log-head";
+
+    const td = document.createElement("td");
+    td.colSpan = 7;
+    td.style.padding = "10px 8px";
+    td.style.background = "rgba(255,255,255,0.04)";
+    td.style.borderTop = "1px solid rgba(255,255,255,0.10)";
+    td.style.borderBottom = "1px solid rgba(255,255,255,0.08)";
+
+    const wrap = document.createElement("div");
+    wrap.style.display = "flex";
+    wrap.style.alignItems = "center";
+    wrap.style.justifyContent = "space-between";
+    wrap.style.gap = "10px";
+
+    const left = document.createElement("div");
+    left.textContent = "Log data " + log.id;
+    left.style.fontWeight = "800";
+    left.style.letterSpacing = "0.3px";
+    left.style.color = "rgba(255,255,255,0.92)";
+
+    const right = document.createElement("div");
+    right.style.display = "flex";
+    right.style.alignItems = "center";
+    right.style.gap = "8px";
+
+    const small = document.createElement("div");
+    small.textContent = "(rows: 0)";
+    small.style.fontSize = "12px";
+    small.style.color = "rgba(255,255,255,0.55)";
+    small.id = "log_rows_" + log.id;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "SAVE LOG";
+    btn.style.cursor = "pointer";
+    btn.style.padding = "6px 10px";
+    btn.style.borderRadius = "8px";
+    btn.style.border = "1px solid rgba(255,255,255,0.18)";
+    btn.style.background = "rgba(10,12,18,0.35)";
+    btn.style.color = "rgba(255,255,255,0.88)";
+    btn.onclick = () => { try{ window.DYNO_saveLogCSV(log.id); }catch(e){} };
+
+    right.appendChild(small);
+    right.appendChild(btn);
+
+    wrap.appendChild(left);
+    wrap.appendChild(right);
+    td.appendChild(wrap);
+    head.appendChild(td);
+
+    // separator row
+    const sep = document.createElement("tr");
+    sep.className = "log-sep";
+    const sd = document.createElement("td");
+    sd.colSpan = 7;
+    sd.style.padding = "0";
+    sd.style.background = "transparent";
+
+    const line = document.createElement("div");
+    line.style.height = "10px";
+    line.style.borderBottom = "1px solid rgba(255,255,255,0.06)";
+    line.style.background = "rgba(0,0,0,0)";
+    sd.appendChild(line);
+    sep.appendChild(sd);
+
+    // insert at top: head then (rows will insert before sep) then sep
+    const first = tb.firstChild;
+    if (first){
+      tb.insertBefore(sep, first);
+      tb.insertBefore(head, sep);
+    }else{
+      tb.appendChild(head);
+      tb.appendChild(sep);
+    }
+
+    log._headTr = head;
+    log._sepTr  = sep;
+    log._rowsTr = [];
+  }
+
+  function appendRowToCurrentLog(r){
+    const log = DYNO.currentLog;
+    if (!log) return;
+
+    // limit rows per log
+    if (log.rows.length >= MAX_ROWS_PER_LOG){
+      // kalau penuh, jangan tambah lagi (biar ringan)
+      return;
+    }
+
+    const last = log.rows.length ? log.rows[log.rows.length - 1] : null;
+    const changed = !last ||
+      (Math.abs((r.t||0) - (last.t||0)) > 0.005) ||
+      (Math.abs((r.dist||0) - (last.dist||0)) > 0.01);
+
+    if (!changed) return;
+
+    log.rows.push(r);
+
+    // append DOM row tepat di bawah header log (sebelum separator)
+    const tb = document.getElementById("d_tbody");
+    if (!tb || !log._sepTr) return;
+
+    const tr = document.createElement("tr");
+
+    const idx = log.rows.length; // 1-based
+    const cells = [
+      String(idx),
+      (r.t||0).toFixed(3),
+      String(Math.round(r.rpm||0)),
+      (r.hp||0).toFixed(2),
+      (r.tq||0).toFixed(2),
+      (r.spd||0).toFixed(2),
+      (r.dist||0).toFixed(2)
+    ];
+
+    for (let i=0; i<cells.length; i++){
+      const td = document.createElement("td");
+      td.textContent = cells[i];
+      if (i === 0) td.style.textAlign = "left";
+      tr.appendChild(td);
+    }
+
+    tb.insertBefore(tr, log._sepTr);
+    log._rowsTr.push(tr);
+
+    updateLogRowsLabel(log);
+    updateLogInfo();
+  }
+
+  function updateLogRowsLabel(log){
+    const el = document.getElementById("log_rows_" + log.id);
+    if (el) el.textContent = "(rows: " + String(log.rows.length) + ")";
+  }
+
+  function updateLogInfo(){
+    // tampilkan jumlah log + total rows
+    let totalRows = 0;
+    for (let i=0; i<DYNO.logs.length; i++) totalRows += DYNO.logs[i].rows.length;
+    setText("d_logInfo", String(totalRows) + " rows / " + String(DYNO.logs.length) + " logs");
+  }
+
+  // hard reset all logs + UI live
+  function hardResetAll(quiet){
+    if (DYNO.timer){
+      clearInterval(DYNO.timer);
+      DYNO.timer = null;
+    }
+
+    DYNO.armed = false;
+    DYNO.running = false;
+
+    DYNO.t = 0;
+    DYNO.distM = 0;
+    DYNO.speedKmh = 0;
+    DYNO.rpm = 0;
+    DYNO.tq = 0;
+    DYNO.hp = 0;
+
+    DYNO.maxHP = 0;
+    DYNO.maxTQ = 0;
+
+    DYNO.lastSnap = null;
+
+    DYNO.logs = [];
+    DYNO.currentLog = null;
+    DYNO.prevFwRunning = false;
+
+    const tb = document.getElementById("d_tbody");
+    if (tb) tb.innerHTML = "";
+
+    updateInfoBox();
+    updateLiveUI();
+    updateState("READY");
+
+    if (!quiet) setStatus("READY");
+    updateLogInfo();
   }
 
   // ==========================
@@ -431,7 +745,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     setText("d_tqMax", (DYNO.maxTQ||0).toFixed(1));
     setText("d_hpMax", (DYNO.maxHP||0).toFixed(1));
 
-    setText("d_logInfo", String(DYNO.rows.length) + " rows");
+    updateLogInfo();
   }
 
   function updateInfoBox(){
@@ -444,81 +758,6 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
   function setText(id, txt){
     const el = document.getElementById(id);
     if (el) el.textContent = String(txt);
-  }
-
-  // ==========================
-  // TABLE
-  // ==========================
-  function DYNO_reset(quiet){
-    if (DYNO.timer){
-      clearInterval(DYNO.timer);
-      DYNO.timer = null;
-    }
-
-    DYNO.armed = false;
-    DYNO.running = false;
-
-    DYNO.t = 0;
-    DYNO.distM = 0;
-    DYNO.speedKmh = 0;
-    DYNO.rpm = 0;
-    DYNO.tq = 0;
-    DYNO.hp = 0;
-
-    DYNO.maxHP = 0;
-    DYNO.maxTQ = 0;
-
-    DYNO.lastSnap = null;
-
-    DYNO.rows = [];
-
-    const tb = document.getElementById("d_tbody");
-    if (tb) tb.innerHTML = "";
-
-    updateInfoBox();
-    updateLiveUI();
-    updateState("READY");
-
-    if (!quiet) setStatus("READY");
-  }
-
-  function appendRowFast(r){
-    const tb = document.getElementById("d_tbody");
-    if (!tb) return;
-
-    // batasi rows
-    if (DYNO.rows.length > MAX_TABLE_ROWS){
-      DYNO.rows.splice(0, DYNO.rows.length - MAX_TABLE_ROWS);
-      // rebuild sederhana
-      tb.innerHTML = "";
-      for (let i=0; i<DYNO.rows.length; i++) appendRowDom(tb, DYNO.rows[i], i);
-      return;
-    }
-
-    appendRowDom(tb, r, DYNO.rows.length - 1);
-  }
-
-  function appendRowDom(tb, r, idx){
-    const tr = document.createElement("tr");
-
-    const cells = [
-      String(idx + 1),
-      (r.t||0).toFixed(3),
-      String(Math.round(r.rpm||0)),
-      (r.hp||0).toFixed(2),
-      (r.tq||0).toFixed(2),
-      (r.spd||0).toFixed(2),
-      (r.dist||0).toFixed(2)
-    ];
-
-    for (let i=0; i<cells.length; i++){
-      const td = document.createElement("td");
-      td.textContent = cells[i];
-      if (i === 0) td.style.textAlign = "left";
-      tr.appendChild(td);
-    }
-
-    tb.appendChild(tr);
   }
 
   // ==========================
@@ -633,7 +872,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     const rMax = DYNO.rpmEnd;
 
     const dMin = 0;
-    const dMax = Math.max(1, DYNO.targetM); // ini yang bikin kotak jarak grafik ikut target input
+    const dMax = Math.max(1, DYNO.targetM); // ikut target input
 
     const yMaxPower = niceMax(Math.max(1, DYNO.maxHP || 0, DYNO.maxTQ || 0, 1));
 
@@ -709,19 +948,23 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
       return;
     }
 
-    if (DYNO.rows.length < 2) {
+    // untuk grafik, pakai log terbaru (currentLog) kalau ada, fallback log newest
+    const logForGraph = DYNO.currentLog || (DYNO.logs.length ? DYNO.logs[0] : null);
+    const rows = logForGraph ? logForGraph.rows : [];
+
+    if (!rows || rows.length < 2) {
       drawInfoText(ctx, W, H, "RUN untuk mulai.");
       drawOverlayInsideGraph(ctx, PAD_L, PAD_T, plotW, plotH);
       return;
     }
 
-    const series = buildSeriesByDist(DYNO.rows, dMin, dMax, rMin, rMax);
+    const series = buildSeriesByDist(rows, dMin, dMax, rMin, rMax);
 
     // curves
     drawCurveDist(series, p=>p.tq,  TQ_COLOR, yMaxPower, PAD_L, PAD_T, plotW, plotH, dMin, dMax);
     drawCurveDist(series, p=>p.hp,  HP_COLOR, yMaxPower, PAD_L, PAD_T, plotW, plotH, dMin, dMax);
 
-    // RPM curve (scale to RPM axis in same plot, just as thin line)
+    // RPM curve
     drawCurveDistRPM(series, p=>p.rpm, RPM_COLOR, rMin, rMax, PAD_L, PAD_T, plotW, plotH, dMin, dMax);
 
     drawOverlayInsideGraph(ctx, PAD_L, PAD_T, plotW, plotH);
@@ -863,8 +1106,19 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
   }
 
   // ==========================
-  // MATH + DRAW UTILS
+  // UTIL
   // ==========================
+  function downloadCSV(text, filename){
+    const blob = new Blob([text], {type:"text/csv"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename || "dyno.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  }
+
   function clampNum(v, a, b, def){
     v = Number(v);
     if (!isFinite(v)) return def;
@@ -895,7 +1149,7 @@ console.log("✅ dyno-road.js dimuat (FRONT ONLY — NO AFR/IGN)");
     ctx.closePath();
   }
 
-  // kick init if DOM already ready (opsional)
+  // kick init
   if (document.readyState === "complete" || document.readyState === "interactive"){
     setTimeout(() => { try{ window.DYNO_init(); }catch(e){} }, 0);
   } else {
