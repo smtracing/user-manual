@@ -1,614 +1,368 @@
 /* =========================================================
-   esp-api-dual.js — REAL + AUTO SIM (HARD PULSE) [FRONT ONLY]
-   - Tidak perlu ?sim=1
-   - Tidak perlu ubah dyno-road.html
-   - AUTO:
-      * Jika ESP32 (192.168.4.1) bisa diakses => REAL mode
-      * Jika gagal beberapa kali => SIM mode (connected palsu)
-      * Jika ESP32 kembali online => balik REAL mode
+   esp-api-dual.js — ESP32 DYNO API + AUTO SIMULATOR (NO PARAM REQUIRED)
+   - Jika ESP32 tidak bisa diakses, otomatis masuk SIM mode
+   - Dipakai oleh dyno-road.js (poll /snapshot 16ms)
+   - Tambahan LOGS API:
+       GET /logs_meta
+       GET /logs?id=123
+       GET /logs_clear
 ========================================================= */
-
-console.log("✅ esp-api-dual.js dimuat (REAL + AUTO SIM HARD PULSE)");
 
 (function(){
   "use strict";
 
-  const BASE_URL = "http://192.168.4.1";
+  const DEFAULT_BASE = "http://192.168.4.1";
+  const FETCH_TIMEOUT_MS = 900;
 
-  // ===== Auto mode switching =====
-  const AUTO = {
-    mode: "real",          // "real" | "sim"
-    failCount: 0,
-    successCount: 0,
+  const BASE = DEFAULT_BASE;
 
-    // switching thresholds
-    FAIL_TO_SIM: 2,        // gagal beruntun berapa kali -> masuk SIM
-    SUCCESS_TO_REAL: 2,    // sukses beruntun berapa kali -> balik REAL
+  let netEverOk = false;
+  let forceSim = false;
 
-    // status cache
-    lastRealStatus: null,
-    lastRealSnapshot: null,
-    lastConn: { connected:false, online:false, ip:"", running:false, armed:false }
-  };
-
-  // ---- Real fetch helper (GET json)
-  async function fetchJson(path, timeoutMs = 900){
-    const url = BASE_URL + path;
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), timeoutMs);
-    try{
-      const r = await fetch(url, { method:"GET", cache:"no-store", signal: ctrl.signal });
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return await r.json();
-    } finally {
-      clearTimeout(t);
-    }
+  function withTimeout(promise, ms){
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("timeout")), ms);
+      promise.then(v => { clearTimeout(t); resolve(v); })
+             .catch(e => { clearTimeout(t); reject(e); });
+    });
   }
 
-  function nowMs(){
-    return (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-  }
-  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  async function fetchJson(path, opt){
+    const url = BASE + path;
+    const options = opt || {};
+    options.method = options.method || "GET";
+    options.headers = options.headers || {};
+    options.headers["Accept"] = "application/json";
 
-  function setMode(newMode){
-    if (AUTO.mode === newMode) return;
-    AUTO.mode = newMode;
-    if (newMode === "sim"){
-      console.log("🧪 AUTO-SIM AKTIF (ESP tidak terjangkau) => grafik & log jalan pakai SIM");
-      simResetAll(); // mulai dari bersih saat masuk SIM
-    } else {
-      console.log("🔌 REAL MODE AKTIF (ESP terjangkau) => data dari firmware");
-    }
-  }
-
-  function onRealSuccess(){
-    AUTO.failCount = 0;
-    AUTO.successCount++;
-    if (AUTO.mode === "sim" && AUTO.successCount >= AUTO.SUCCESS_TO_REAL){
-      setMode("real");
-      AUTO.successCount = 0;
-    }
-  }
-
-  function onRealFail(){
-    AUTO.successCount = 0;
-    AUTO.failCount++;
-    if (AUTO.mode === "real" && AUTO.failCount >= AUTO.FAIL_TO_SIM){
-      setMode("sim");
-      AUTO.failCount = 0;
-    }
-  }
-
-  // =========================================================
-  // SIM ENGINE (HARD PULSE / DISCRETE)
-  // =========================================================
-  const SIM = {
-    // connection
-    online:true,
-    ip:"SIM",
-
-    // state
-    armed:false,
-    running:false,
-
-    // config
-    targetM:200,
-    circM:1.85,
-    pprFront:1,
-    weightKg:120,
-
-    // gate
-    gate_wait:false,
-    gate_pulses:1,
-    gate_count:0,
-
-    // timing
-    t0ms:0,
-    t_s:0,
-
-    // motion
-    dist_m:0,
-    speed_kmh:0,
-    rpm:0,
-
-    // outputs
-    tq:0,
-    hp:0,
-    maxHP:0,
-    maxTQ:0,
-
-    // internal
-    _runStartMs:0,
-    _lastMs:0,
-
-    // pulse accumulators
-    _wheelPulseFrac:0,
-    _rpmPulseFrac:0,
-
-    // measurement windows
-    _wWinMs:100,
-    _rWinMs:100,
-    _wWinStart:0,
-    _rWinStart:0,
-    _wPulseCount:0,
-    _rPulseCount:0,
-
-    // rpm pulse per rev (SIM only)
-    rpmPPR:1,
-
-    statusText:"READY (SIM)"
-  };
-
-  function simResetAll(){
-    SIM.armed = false;
-    SIM.running = false;
-
-    SIM.targetM   = Number(SIM.targetM) || 200;
-    SIM.circM     = Number(SIM.circM) || 1.85;
-    SIM.pprFront  = Math.max(1, Math.round(Number(SIM.pprFront) || 1));
-    SIM.weightKg  = Math.max(1, Math.round(Number(SIM.weightKg) || 120));
-
-    SIM.gate_pulses = Math.max(1, Math.round(SIM.pprFront));
-    SIM.gate_wait = false;
-    SIM.gate_count = 0;
-
-    SIM.t0ms = 0;
-    SIM.t_s = 0;
-
-    SIM.dist_m = 0;
-    SIM.speed_kmh = 0;
-    SIM.rpm = 0;
-
-    SIM.tq = 0;
-    SIM.hp = 0;
-    SIM.maxHP = 0;
-    SIM.maxTQ = 0;
-
-    SIM._runStartMs = 0;
-    SIM._lastMs = 0;
-
-    SIM._wheelPulseFrac = 0;
-    SIM._rpmPulseFrac = 0;
-
-    SIM._wWinStart = 0;
-    SIM._rWinStart = 0;
-    SIM._wPulseCount = 0;
-    SIM._rPulseCount = 0;
-
-    SIM.statusText = "READY (SIM)";
-  }
-
-  function simConfig(cfg){
-    cfg = cfg || {};
-    const t = Number(cfg.targetM);
-    const c = Number(cfg.circM);
-    const p = Number(cfg.pprFront);
-    const w = Number(cfg.weightKg);
-
-    if (isFinite(t) && t > 0) SIM.targetM = t;
-    if (isFinite(c) && c > 0) SIM.circM = c;
-    if (isFinite(p) && p > 0) SIM.pprFront = Math.max(1, Math.round(p));
-    if (isFinite(w) && w > 0) SIM.weightKg = Math.max(1, Math.round(w));
-
-    SIM.gate_pulses = Math.max(1, Math.round(SIM.pprFront));
-    return { ok:true, targetM:SIM.targetM, circM:SIM.circM, pprFront:SIM.pprFront, weightKg:SIM.weightKg };
-  }
-
-  function simArm(){
-    SIM.armed = true;
-    SIM.statusText = "ARMED (SIM)";
-    return { ok:true, armed:true, running:SIM.running };
-  }
-
-  function simRun(){
-    const ms = nowMs();
-
-    SIM.armed = true;
-    SIM.running = true;
-
-    SIM._runStartMs = ms;
-    SIM._lastMs = ms;
-
-    SIM.gate_pulses = Math.max(1, Math.round(SIM.pprFront || 1));
-    SIM.gate_wait = true;
-    SIM.gate_count = 0;
-
-    SIM.t0ms = 0;
-    SIM.t_s = 0;
-
-    SIM.dist_m = 0;
-    SIM.speed_kmh = 0;
-    SIM.rpm = 0;
-
-    SIM.tq = 0;
-    SIM.hp = 0;
-    SIM.maxHP = 0;
-    SIM.maxTQ = 0;
-
-    SIM._wheelPulseFrac = 0;
-    SIM._rpmPulseFrac = 0;
-
-    SIM._wWinStart = ms;
-    SIM._rWinStart = ms;
-    SIM._wPulseCount = 0;
-    SIM._rPulseCount = 0;
-
-    SIM.statusText = "RUN: gate_wait (SIM)";
-    return { ok:true, armed:true, running:true, gate_wait:true, gate_pulses:SIM.gate_pulses };
-  }
-
-  function simStop(){
-    SIM.running = false;
-    SIM.armed = false;
-    SIM.gate_wait = false;
-    SIM.statusText = "STOP (SIM)";
-    return { ok:true, armed:false, running:false };
-  }
-
-  function torqueFromRPM(rpm){
-    rpm = clamp(rpm, 0, 22000);
-    const x = clamp(rpm / 20000, 0, 1);
-    const bump = Math.sin(Math.PI * x);
-    return 16 + 14 * bump; // 16..30..16
-  }
-
-  function speedTargetKmh(runT_s, weightKg){
-    const w = clamp(Number(weightKg)||120, 30, 500);
-    const vmax = 120 - clamp((w - 80) * 0.10, 0, 60);
-    const a = 70;
-    return clamp(a * runT_s, 0, vmax);
-  }
-
-  function rpmTargetFromSpeed(vKmh){
-    const x = clamp(vKmh / 120, 0, 1);
-    const e = x < 0.5 ? 2*x*x : 1 - Math.pow(-2*x + 2, 2)/2;
-    return 2000 + e * 16000;
-  }
-
-  function simStep(dt_s, msNow){
-    const circ = Math.max(0.05, Number(SIM.circM) || 1.85);
-    const ppr  = Math.max(1, Math.round(Number(SIM.pprFront) || 1));
-    const targetM = Math.max(1, Number(SIM.targetM) || 200);
-
-    const runT = Math.max(0, (msNow - SIM._runStartMs) / 1000);
-    const vTargetKmh = speedTargetKmh(runT, SIM.weightKg);
-
-    // wheel pulses
-    const v_mps = (vTargetKmh * 1000) / 3600;
-    const wheelRevPerSec = v_mps / circ;
-    const wheelPps = wheelRevPerSec * ppr;
-
-    SIM._wheelPulseFrac += wheelPps * dt_s;
-
-    let newWheelPulses = 0;
-    if (SIM._wheelPulseFrac >= 1){
-      newWheelPulses = Math.floor(SIM._wheelPulseFrac);
-      SIM._wheelPulseFrac -= newWheelPulses;
-    }
-
-    if (newWheelPulses > 0){
-      const distPerPulse = circ / ppr;
-      SIM.dist_m += newWheelPulses * distPerPulse;
-
-      SIM._wPulseCount += newWheelPulses;
-
-      if (SIM.gate_wait){
-        SIM.gate_count += newWheelPulses;
-        if (SIM.gate_count >= SIM.gate_pulses){
-          SIM.gate_wait = false;
-          SIM.t0ms = msNow;
-          SIM.t_s = 0;
-          SIM.statusText = "RUNNING (SIM)";
-
-          SIM._wWinStart = msNow;
-          SIM._wPulseCount = 0;
-          SIM._rWinStart = msNow;
-          SIM._rPulseCount = 0;
-        }
+    if (!forceSim){
+      try{
+        const r = await withTimeout(fetch(url, options), FETCH_TIMEOUT_MS);
+        if (!r.ok) throw new Error("http_" + r.status);
+        const j = await r.json();
+        netEverOk = true;
+        return j;
+      }catch(e){
+        if (netEverOk) throw e;
       }
     }
 
-    if (!SIM.gate_wait && SIM.t0ms > 0){
-      SIM.t_s = Math.max(0, (msNow - SIM.t0ms) / 1000);
-    } else {
-      SIM.t_s = 0;
-    }
-
-    // rpm pulses
-    const rpmTarget = rpmTargetFromSpeed(vTargetKmh);
-    const rpmPPR = Math.max(1, Math.round(Number(SIM.rpmPPR) || 1));
-    const rpmRevPerSec = rpmTarget / 60;
-    const rpmPps = rpmRevPerSec * rpmPPR;
-
-    SIM._rpmPulseFrac += rpmPps * dt_s;
-
-    let newRpmPulses = 0;
-    if (SIM._rpmPulseFrac >= 1){
-      newRpmPulses = Math.floor(SIM._rpmPulseFrac);
-      SIM._rpmPulseFrac -= newRpmPulses;
-    }
-    if (newRpmPulses > 0){
-      SIM._rPulseCount += newRpmPulses;
-    }
-
-    // speed window
-    if ((msNow - SIM._wWinStart) >= SIM._wWinMs){
-      const winDt = (msNow - SIM._wWinStart) / 1000;
-      const pulses = SIM._wPulseCount;
-      const distWin = (pulses / ppr) * circ;
-      const vWin_mps = distWin / Math.max(1e-6, winDt);
-      SIM.speed_kmh = vWin_mps * 3.6;
-
-      SIM._wWinStart = msNow;
-      SIM._wPulseCount = 0;
-    }
-
-    // rpm window
-    if ((msNow - SIM._rWinStart) >= SIM._rWinMs){
-      const winDt = (msNow - SIM._rWinStart) / 1000;
-      const pulses = SIM._rPulseCount;
-
-      const rev = pulses / rpmPPR;
-      const rps = rev / Math.max(1e-6, winDt);
-      SIM.rpm = rps * 60;
-
-      SIM._rWinStart = msNow;
-      SIM._rPulseCount = 0;
-    }
-
-    SIM.tq = torqueFromRPM(SIM.rpm);
-    SIM.hp = (SIM.tq * SIM.rpm) / 7127;
-
-    SIM.maxHP = Math.max(SIM.maxHP || 0, SIM.hp || 0);
-    SIM.maxTQ = Math.max(SIM.maxTQ || 0, SIM.tq || 0);
-
-    if (SIM.dist_m >= targetM){
-      SIM.dist_m = targetM;
-      SIM.running = false;
-      SIM.armed = false;
-      SIM.gate_wait = false;
-      SIM.statusText = "AUTO STOP (SIM)";
-    } else {
-      SIM.statusText = SIM.gate_wait ? "RUN: gate_wait (SIM)" : "RUNNING (SIM)";
-    }
+    return SIM.handle(path, options);
   }
 
-  function simSnapshot(){
-    const ms = nowMs();
-
-    if (!SIM.running){
-      return {
-        online:true, ip:SIM.ip,
-        armed:SIM.armed, running:SIM.running,
-        gate_wait:SIM.gate_wait, gate_pulses:SIM.gate_pulses,
-
-        targetM:SIM.targetM, circM:SIM.circM, pprFront:SIM.pprFront, weightKg:SIM.weightKg,
-
-        t_s:SIM.t_s,
-        dist_m:SIM.dist_m,
-        speed_kmh:SIM.speed_kmh,
-
-        rpm:SIM.rpm,
-        tq:SIM.tq,
-        hp:SIM.hp,
-        maxHP:SIM.maxHP,
-        maxTQ:SIM.maxTQ,
-
-        statusText:SIM.statusText
-      };
-    }
-
-    const last = SIM._lastMs || ms;
-    const dt = clamp((ms - last) / 1000, 0, 0.2);
-    SIM._lastMs = ms;
-
-    simStep(dt, ms);
-
-    return {
-      online:true, ip:SIM.ip,
-      armed:SIM.armed, running:SIM.running,
-      gate_wait:SIM.gate_wait, gate_pulses:SIM.gate_pulses,
-
-      targetM:SIM.targetM, circM:SIM.circM, pprFront:SIM.pprFront, weightKg:SIM.weightKg,
-
-      t_s:SIM.t_s,
-      dist_m:SIM.dist_m,
-      speed_kmh:SIM.speed_kmh,
-
-      rpm:SIM.rpm,
-      tq:SIM.tq,
-      hp:SIM.hp,
-      maxHP:SIM.maxHP,
-      maxTQ:SIM.maxTQ,
-
-      statusText:SIM.statusText
-    };
-  }
-
-  // =========================================================
-  // PUBLIC API (dipakai dyno-road.js)
-  // =========================================================
-
-  window.DYNO_getConn_DUAL = async function(){
-    // kalau lagi SIM mode: always connected
-    if (AUTO.mode === "sim"){
-      return {
-        connected:true,
-        online:true,
-        ip:"SIM",
-        running:!!SIM.running,
-        armed:!!SIM.armed,
-        raw:{ online:true, ip:"SIM", running:SIM.running, armed:SIM.armed }
-      };
-    }
-
-    // REAL: coba /status
-    try{
-      const s = await fetchJson("/status", 900);
-      AUTO.lastRealStatus = s;
-      onRealSuccess();
-
-      const online = !!(s && s.online);
-      const ip = (s && s.ip) ? String(s.ip) : BASE_URL.replace("http://","");
-
-      const conn = {
-        connected: online,
-        online,
-        ip,
-        running: !!(s && s.running),
-        armed:   !!(s && s.armed),
-        raw: s
-      };
-      AUTO.lastConn = conn;
-      return conn;
-
-    } catch(e){
-      onRealFail();
-
-      // kalau setelah fail masuk SIM, return SIM connected
-      if (AUTO.mode === "sim"){
-        return {
-          connected:true,
-          online:true,
-          ip:"SIM",
-          running:!!SIM.running,
-          armed:!!SIM.armed,
-          raw:{ online:true, ip:"SIM", running:SIM.running, armed:SIM.armed }
-        };
-      }
-
-      return { connected:false, online:false, ip:"", running:false, armed:false };
-    }
+  // ===== PUBLIC API =====
+  window.DYNO_getStatus_DUAL = async function(){
+    return fetchJson("/status");
   };
 
   window.DYNO_getSnapshot_DUAL = async function(){
-    // SIM mode
-    if (AUTO.mode === "sim"){
-      return simSnapshot();
-    }
-
-    // REAL mode
-    try{
-      const snap = await fetchJson("/snapshot", 900);
-      AUTO.lastRealSnapshot = snap;
-      onRealSuccess();
-      return snap;
-    } catch(e){
-      onRealFail();
-      if (AUTO.mode === "sim"){
-        return simSnapshot();
-      }
-      return null;
-    }
+    return fetchJson("/snapshot");
   };
 
   window.DYNO_setConfig_DUAL = async function(cfg){
-    cfg = cfg || {};
-
-    // selalu update config SIM juga (biar kalau pindah mode nggak aneh)
-    simConfig(cfg);
-
-    if (AUTO.mode === "sim"){
-      return { ok:true, targetM:SIM.targetM, circM:SIM.circM, pprFront:SIM.pprFront, weightKg:SIM.weightKg, sim:true };
-    }
-
-    // REAL request /config
-    try{
-      const targetM  = Number(cfg.targetM ?? 200);
-      const circM    = Number(cfg.circM ?? 1.85);
-      const pprFront = Number(cfg.pprFront ?? 1);
-      const weightKg = Number(cfg.weightKg ?? 120);
-
-      const qs =
-        "?targetM="  + encodeURIComponent(targetM) +
-        "&circM="    + encodeURIComponent(circM) +
-        "&pprFront=" + encodeURIComponent(pprFront) +
-        "&weightKg=" + encodeURIComponent(weightKg);
-
-      const r = await fetchJson("/config" + qs, 1200);
-      onRealSuccess();
-      return r;
-    } catch(e){
-      onRealFail();
-      if (AUTO.mode === "sim"){
-        return { ok:true, targetM:SIM.targetM, circM:SIM.circM, pprFront:SIM.pprFront, weightKg:SIM.weightKg, sim:true };
-      }
-      return { ok:false, err:"config failed" };
-    }
-  };
-
-  window.DYNO_run_DUAL = async function(){
-    if (AUTO.mode === "sim"){
-      return simRun();
-    }
-    try{
-      const r = await fetchJson("/run", 1200);
-      onRealSuccess();
-      return r;
-    } catch(e){
-      onRealFail();
-      if (AUTO.mode === "sim") return simRun();
-      return { ok:false, err:"run failed" };
-    }
+    const qs = new URLSearchParams();
+    if (cfg && cfg.targetM != null)  qs.set("targetM",  String(cfg.targetM));
+    if (cfg && cfg.circM != null)    qs.set("circM",    String(cfg.circM));
+    if (cfg && cfg.pprFront != null) qs.set("pprFront", String(cfg.pprFront));
+    if (cfg && cfg.weightKg != null) qs.set("weightKg", String(cfg.weightKg));
+    return fetchJson("/config?" + qs.toString());
   };
 
   window.DYNO_arm_DUAL = async function(){
-    if (AUTO.mode === "sim"){
-      return simArm();
-    }
-    try{
-      const r = await fetchJson("/arm", 1200);
-      onRealSuccess();
-      return r;
-    } catch(e){
-      onRealFail();
-      if (AUTO.mode === "sim") return simArm();
-      return { ok:false, err:"arm failed" };
-    }
+    return fetchJson("/arm");
+  };
+
+  window.DYNO_run_DUAL = async function(){
+    return fetchJson("/run");
   };
 
   window.DYNO_stop_DUAL = async function(){
-    if (AUTO.mode === "sim"){
-      return simStop();
-    }
-    try{
-      const r = await fetchJson("/stop", 1200);
-      onRealSuccess();
-      return r;
-    } catch(e){
-      onRealFail();
-      if (AUTO.mode === "sim") return simStop();
-      return { ok:false, err:"stop failed" };
-    }
+    return fetchJson("/stop");
   };
 
   window.DYNO_reset_DUAL = async function(){
-    // reset SIM selalu
-    simResetAll();
-
-    if (AUTO.mode === "sim"){
-      return { ok:true, reset:true, sim:true };
-    }
-    try{
-      const r = await fetchJson("/reset", 1200);
-      onRealSuccess();
-      return r;
-    } catch(e){
-      onRealFail();
-      if (AUTO.mode === "sim") return { ok:true, reset:true, sim:true };
-      return { ok:false, err:"reset failed" };
-    }
+    return fetchJson("/reset");
   };
 
-  // init mode decision cepat: coba ping status sekali (tanpa nunggu user klik)
-  (async () => {
-    try{
-      await fetchJson("/status", 700);
-      setMode("real");
-      onRealSuccess();
-    } catch(e){
-      setMode("sim");
+  // ===== LOGS API =====
+  window.DYNO_getLogsMeta_DUAL = async function(){
+    return fetchJson("/logs_meta");
+  };
+
+  window.DYNO_getLog_DUAL = async function(id){
+    const qs = new URLSearchParams();
+    if (id != null) qs.set("id", String(id));
+    return fetchJson("/logs?" + qs.toString());
+  };
+
+  window.DYNO_clearLogs_DUAL = async function(){
+    return fetchJson("/logs_clear");
+  };
+
+  // =========================================================
+  // SIMULATOR
+  // =========================================================
+  const SIM = {
+    cfg:{ targetM:200, circM:1.85, pprFront:1, weightKg:120 },
+
+    armed:false,
+    running:false,
+    gate_wait:false,
+
+    t_s:0,
+    dist_m:0,
+    speed_kmh:0,
+    rpm:0,
+    hp:0,
+    tq:0,
+    maxHP:0,
+    maxTQ:0,
+
+    _lastMs:0,
+    _status:"SIM READY",
+
+    logs:[],      // newest-first: [{id, rows:[{t,rpm,hp,tq,spd,dist}]}]
+    _nextId:1,
+    _active:null,
+    _logLastSampleMs:0,
+
+    _now(){
+      return (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    },
+
+    _resetRunState(){
+      this.t_s = 0;
+      this.dist_m = 0;
+      this.speed_kmh = 0;
+      this.rpm = 0;
+      this.hp = 0;
+      this.tq = 0;
+      this.maxHP = 0;
+      this.maxTQ = 0;
+    },
+
+    _startNewLog(){
+      this._active = { id: this._nextId++, rows: [] };
+      this._logLastSampleMs = this._now();
+    },
+
+    _finalizeLog(){
+      if (!this._active) return;
+      if (!this._active.rows.length){
+        this._active = null;
+        return;
+      }
+      this.logs.unshift(this._active);
+      if (this.logs.length > 20) this.logs.length = 20;
+      this._active = null;
+    },
+
+    _appendRow(){
+      if (!this._active) return;
+      if (this._active.rows.length >= 800) return;
+
+      this._active.rows.push({
+        t: this.t_s,
+        rpm: this.rpm,
+        hp: this.hp,
+        tq: this.tq,
+        spd: this.speed_kmh,
+        dist: this.dist_m
+      });
+    },
+
+    _smoothStep(x){
+      x = Math.max(0, Math.min(1, x));
+      return x*x*(3 - 2*x);
+    },
+
+    _update(){
+      const now = this._now();
+      if (!this._lastMs) this._lastMs = now;
+      let dt = (now - this._lastMs) / 1000;
+      if (!isFinite(dt) || dt <= 0) dt = 0.016;
+      if (dt > 0.1) dt = 0.1;
+      this._lastMs = now;
+
+      if (this.running && this.gate_wait){
+        if (this.t_s >= 0.25){
+          this.gate_wait = false;
+          this._status = "SIM RUNNING";
+        } else {
+          this.t_s += dt;
+          return;
+        }
+      }
+
+      if (!this.running) return;
+
+      this.t_s += dt;
+
+      const target = Math.max(10, Number(this.cfg.targetM) || 200);
+
+      const a = this._smoothStep( Math.min(1, this.t_s / 1.2) );
+      const cruise = this._smoothStep( Math.min(1, (this.t_s-1.2)/2.0) );
+
+      const vMax = 115;
+      const v = vMax * (0.25*a + 0.75*cruise);
+      const ripple = 1.0 + 0.015*Math.sin(this.t_s*7.0) + 0.01*Math.sin(this.t_s*13.0);
+      this.speed_kmh = Math.max(0, v * ripple);
+
+      const v_ms = this.speed_kmh / 3.6;
+      this.dist_m += v_ms * dt;
+
+      const rpmStart = 2600;
+      const rpmEnd   = 18500;
+      const rp = this._smoothStep( Math.min(1, this.t_s / 1.1) );
+      this.rpm = rpmStart + (rpmEnd - rpmStart)*rp + 120*Math.sin(this.t_s*8.0);
+      if (this.rpm < 0) this.rpm = 0;
+
+      const hpMax = 55.0;
+      const tqMax = 30.0;
+
+      const hpShape = (0.55*a + 0.45*cruise);
+      const tqShape = (0.75 - 0.25*cruise) * (0.85 + 0.15*a);
+
+      this.hp = hpMax * hpShape * (0.98 + 0.03*Math.sin(this.t_s*5.2));
+      this.tq = tqMax * tqShape * (0.98 + 0.03*Math.sin(this.t_s*4.1));
+
+      if (this.hp > this.maxHP) this.maxHP = this.hp;
+      if (this.tq > this.maxTQ) this.maxTQ = this.tq;
+
+      if (this._active){
+        const now2 = this._now();
+        if ((now2 - this._logLastSampleMs) >= 20){
+          this._logLastSampleMs = now2;
+          this._appendRow();
+        }
+      }
+
+      if (this.dist_m >= target){
+        this.dist_m = target;
+        this.running = false;
+        this.armed = false;
+        this.gate_wait = false;
+        this._status = "SIM AUTO STOP";
+        this._finalizeLog();
+      }
+    },
+
+    async handle(path){
+      this._update();
+
+      const qPos = path.indexOf("?");
+      const basePath = (qPos >= 0) ? path.slice(0, qPos) : path;
+
+      if (basePath === "/status"){
+        return { ok:1, sim:1, armed:this.armed, running:this.running, statusText:this._status };
+      }
+
+      if (basePath === "/config"){
+        if (qPos >= 0){
+          const qs = new URLSearchParams(path.slice(qPos+1));
+          if (qs.has("targetM"))  this.cfg.targetM  = Number(qs.get("targetM")) || this.cfg.targetM;
+          if (qs.has("circM"))    this.cfg.circM    = Number(qs.get("circM")) || this.cfg.circM;
+          if (qs.has("pprFront")) this.cfg.pprFront = Number(qs.get("pprFront")) || this.cfg.pprFront;
+          if (qs.has("weightKg")) this.cfg.weightKg = Number(qs.get("weightKg")) || this.cfg.weightKg;
+        }
+        return { ok:1, sim:1, ...this.cfg };
+      }
+
+      if (basePath === "/arm"){
+        this.armed = true;
+        this._status = "SIM ARMED";
+        return { ok:1, sim:1, armed:this.armed };
+      }
+
+      if (basePath === "/run"){
+        this.armed = true;
+        this.running = true;
+        this.gate_wait = true;
+        this._status = "SIM RUN (WAIT 1 REV)";
+        this._resetRunState();
+        this._startNewLog();
+        return { ok:1, sim:1, running:this.running };
+      }
+
+      if (basePath === "/stop"){
+        this.running = false;
+        this.armed = false;
+        this.gate_wait = false;
+        this._status = "SIM STOP";
+        this._finalizeLog();
+        return { ok:1, sim:1, running:this.running };
+      }
+
+      if (basePath === "/reset"){
+        this.running = false;
+        this.armed = false;
+        this.gate_wait = false;
+        this._status = "SIM RESET";
+        this._resetRunState();
+        return { ok:1, sim:1 };
+      }
+
+      if (basePath === "/snapshot"){
+        return {
+          ok:1,
+          sim:1,
+          armed:this.armed,
+          running:this.running,
+          gate_wait:this.gate_wait,
+          gate_pulses:this.cfg.pprFront,
+
+          targetM:this.cfg.targetM,
+          circM:this.cfg.circM,
+          pprFront:this.cfg.pprFront,
+          weightKg:this.cfg.weightKg,
+
+          t_s:this.t_s,
+          dist_m:this.dist_m,
+          speed_kmh:this.speed_kmh,
+
+          rpm:this.rpm,
+          hp:this.hp,
+          tq:this.tq,
+          maxHP:this.maxHP,
+          maxTQ:this.maxTQ,
+
+          statusText:this._status
+        };
+      }
+
+      // LOGS
+      if (basePath === "/logs_meta"){
+        const logs = this.logs.map(L => ({
+          id: L.id,
+          rows: L.rows.length,
+          targetM:this.cfg.targetM,
+          circM:this.cfg.circM,
+          pprFront:this.cfg.pprFront,
+          weightKg:this.cfg.weightKg
+        }));
+        return { ok:1, sim:1, count: logs.length, logs };
+      }
+
+      if (basePath === "/logs"){
+        let id = 0;
+        if (qPos >= 0){
+          const qs = new URLSearchParams(path.slice(qPos+1));
+          if (qs.has("id")) id = Number(qs.get("id")) || 0;
+        }
+        if (!id && this.logs.length) id = this.logs[0].id;
+
+        const L = this.logs.find(x => x.id === id);
+        if (!L) return { ok:0, sim:1, err:"not_found" };
+        return { ok:1, sim:1, id:L.id, rows: L.rows };
+      }
+
+      if (basePath === "/logs_clear"){
+        this.logs = [];
+        this._status = "SIM LOGS CLEARED";
+        return { ok:1, sim:1, logs_cleared:1 };
+      }
+
+      return { ok:0, sim:1, err:"unknown_path", path: basePath };
     }
-  })();
+  };
 
 })();
