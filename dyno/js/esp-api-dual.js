@@ -1,12 +1,16 @@
-console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
+console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM + BYPASS GATE)");
 
 // =========================================================
 // esp-api-dual.js — HTTP API Wrapper (ESP32 AP: 192.168.4.1)
-// + SIMULATOR (SIM=1) untuk test UI dyno-road tanpa ESP32
+// + SIMULATOR (SIM=1) untuk test dyno-road tanpa ESP32
 //
 // Cara pakai SIM:
-// - Buka dyno-road.html pakai URL: .../dyno-road.html?sim=1
-// - Optional speed: ...?sim=1&simx=15  (default 10)
+// - Buka dyno-road.html:  .../dyno-road.html?sim=1
+// - Percepat:             ...?sim=1&simx=15   (default 10, max 60)
+//
+// Catatan penting:
+// - SIM BYPASS GATE: tidak ada WAIT_GATE / 1 putaran.
+//   Saat RUN -> langsung RUNNING (agar grafik & log langsung isi).
 // =========================================================
 
 (function(){
@@ -17,7 +21,6 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
   // =========================
   const BASE_URL = "http://192.168.4.1";
 
-  // helper parse query
   function getQueryParam(name, def){
     try{
       const u = new URL(window.location.href);
@@ -32,14 +35,12 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
   const SIM_ON = String(getQueryParam("sim","0")) === "1";
 
   // Time scale simulator: 1 detik real = SIM_X detik simulasi
-  // default 10x (lebih cepat). bisa override ?simx=15
   const SIM_X = (function(){
     const v = Number(getQueryParam("simx", "10"));
     if (!isFinite(v)) return 10;
     return Math.max(1, Math.min(60, v));
   })();
 
-  // helper: fetch JSON dengan timeout
   async function fetchJson(path, timeoutMs = 800){
     const url = BASE_URL + path;
 
@@ -89,11 +90,10 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
 
     statusText:"READY",
 
-    // internal sim physics
+    // internal sim time
     _lastRealMs:0,
     _simUs:0,
 
-    _baseFront:0,
     _startFront:0,
     _startSimUs:0,
 
@@ -102,10 +102,10 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
     _v_ms_prev:0,
 
     // tuning
-    _accel_ms2: 10.0,    // percepatan (sim)
-    _vmax_ms:   85.0,    // batas speed
-    _alpha:     0.85,    // filter speed
-    _accelMax:  20.0     // clamp accel (mirip firmware)
+    _accel_ms2: 12.0,     // percepatan (sim) — naikkan jika mau lebih cepat
+    _vmax_ms:   95.0,     // batas speed (m/s) ~ 342 km/h
+    _alpha:     0.85,     // filter speed
+    _accelMax:  20.0      // clamp accel (mirip firmware)
   };
 
   function simResetAll(keepConfig){
@@ -134,7 +134,6 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
     SIM._simUs = 0;
     SIM._lastRealMs = 0;
 
-    SIM._baseFront = 0;
     SIM._startFront = 0;
     SIM._startSimUs = 0;
 
@@ -150,42 +149,57 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
     }
   }
 
-  function simStartRun(){
-    // reset state, keep config
-    simResetAll(true);
-
-    SIM.armed = true;
-    SIM.running = true;
-    SIM.gate_wait = true;
-    SIM.gate_pulses = Math.max(1, Math.round(SIM.cfg_pprFront || 1));
-
-    SIM._baseFront = SIM.front_total;
-    SIM._startSimUs = 0;
-    SIM._startFront = 0;
-
-    SIM.statusText = "WAIT_GATE";
-  }
-
   function clampf(v,a,b){
     if (v < a) return a;
     if (v > b) return b;
     return v;
   }
 
-  // distance -> pulses helper
+  // distance -> pulses
   function distToPulses(dist_m){
     const circ = Math.max(0.0001, Number(SIM.cfg_circM || 1.85));
     const ppr  = Math.max(1, Math.round(SIM.cfg_pprFront || 1));
-    // pulses = revolutions * ppr = (dist/circ)*ppr
     return Math.floor((dist_m / circ) * ppr);
   }
 
-  // mapping speed->rpm (cuma untuk demo UI)
+  // dummy RPM from speed
   function speedToRpm(v_ms){
-    // dibuat naik cepat sampai 20000 rpm, tanpa terlalu liar
-    // 0..85 m/s -> 1200..20000 rpm
-    const r = 1200 + (v_ms / 85.0) * (20000 - 1200);
+    const r = 1200 + (v_ms / 95.0) * (20000 - 1200);
     return clampf(r, 0, 20000);
+  }
+
+  // =========================================================
+  // SIM START RUN (BYPASS GATE)
+  // =========================================================
+  function simStartRun(){
+    // reset state, keep config
+    simResetAll(true);
+
+    SIM.armed = true;
+    SIM.running = true;
+
+    // === SIM MODE: BYPASS GATE (langsung RUNNING) ===
+    SIM.gate_wait   = false;
+    SIM.gate_pulses = Math.max(1, Math.round(SIM.cfg_pprFront || 1));
+
+    // start counters/time "sekarang"
+    SIM._startSimUs = SIM._simUs;
+    SIM._startFront = SIM.front_total;
+
+    // reset outputs after start
+    SIM.t_s = 0;
+    SIM.dist_m = 0;
+    SIM.speed_kmh = 0;
+    SIM.hp = 0;
+    SIM.tq = 0;
+    SIM.maxHP = 0;
+    SIM.maxTQ = 0;
+
+    SIM._v_ms = 0;
+    SIM._v_ms_filt = 0;
+    SIM._v_ms_prev = 0;
+
+    SIM.statusText = "RUNNING";
   }
 
   function simTick(){
@@ -195,15 +209,10 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
     const dtReal_s = (nowMs - SIM._lastRealMs) / 1000.0;
     SIM._lastRealMs = nowMs;
 
-    // dt simulasi dipercepat
     const dt_s = dtReal_s * SIM_X;
     if (!isFinite(dt_s) || dt_s <= 0) return;
 
-    // update "sim time"
     SIM._simUs += Math.floor(dt_s * 1e6);
-
-    // update RPM dummy terus walau belum running (biar hidup)
-    SIM.rpm = SIM.running ? SIM.rpm : 0;
 
     if (!SIM.running){
       SIM.t_s = 0;
@@ -211,81 +220,25 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
       SIM.speed_kmh = 0;
       SIM.hp = 0;
       SIM.tq = 0;
+      SIM.rpm = 0;
       SIM.statusText = SIM.statusText || "READY";
       return;
     }
 
-    // ======= WAIT_GATE =======
-    if (SIM.gate_wait){
-      // selama wait gate, kita belum hitung t/dist/speed/hp/tq (seperti firmware)
-      // tapi kita tetap "menggerakkan roda" agar segera lewat gate
-      const a = SIM._accel_ms2; // m/s^2
-      SIM._v_ms = clampf(SIM._v_ms + a * dt_s, 0, SIM._vmax_ms);
+    // RUNNING (langsung, tanpa gate)
+    SIM._v_ms = clampf(SIM._v_ms + SIM._accel_ms2 * dt_s, 0, SIM._vmax_ms);
 
-      // distance accum (internal), tapi firmware membekukan output saat gate_wait
-      const dAdd = SIM._v_ms * dt_s;
-      const dTotalInternal = SIM.dist_m + dAdd;
-
-      // pulses
-      const pulses = distToPulses(dTotalInternal);
-      SIM.front_total = SIM._baseFront + pulses;
-
-      const deltaFront = SIM.front_total - SIM._baseFront;
-      if (deltaFront < SIM.gate_pulses){
-        // output freeze
-        SIM.t_s = 0;
-        SIM.dist_m = 0;
-        SIM.speed_kmh = 0;
-        SIM.hp = 0;
-        SIM.tq = 0;
-        SIM.rpm = 0;
-        SIM.statusText = "WAIT_GATE";
-        return;
-      }
-
-      // gate pass
-      SIM.gate_wait = false;
-      SIM._startSimUs = SIM._simUs;
-      SIM._startFront = SIM._baseFront + SIM.gate_pulses;
-
-      // reset outputs after gate
-      SIM.t_s = 0;
-      SIM.dist_m = 0;
-      SIM.speed_kmh = 0;
-      SIM.hp = 0;
-      SIM.tq = 0;
-      SIM.maxHP = 0;
-      SIM.maxTQ = 0;
-
-      SIM._v_ms_filt = 0;
-      SIM._v_ms_prev = 0;
-
-      SIM.statusText = "RUNNING";
-      return;
-    }
-
-    // ======= RUNNING =======
-    // percepatan simulasi
-    const aCmd = SIM._accel_ms2; // bisa dianggap "gas"
-    SIM._v_ms = clampf(SIM._v_ms + aCmd * dt_s, 0, SIM._vmax_ms);
-
-    // distance update
     const dAdd = SIM._v_ms * dt_s;
+    SIM.dist_m += dAdd;
 
-    // pulses based on distance after startFront (mirip firmware)
-    // kita simpan internal dist_m sebagai "after gate" (output)
-    const newDist = SIM.dist_m + dAdd;
-    SIM.dist_m = newDist;
-
-    // update front_total relative to startFront
+    // pulses update
     const pulsesAfter = distToPulses(SIM.dist_m);
     SIM.front_total = SIM._startFront + pulsesAfter;
 
-    // time after gate
+    // time after start
     SIM.t_s = (SIM._simUs - SIM._startSimUs) / 1e6;
 
-    // compute speed from filtered v
-    // filter ala firmware: v_filt = 0.85 prev + 0.15 v
+    // filter speed
     SIM._v_ms_filt = (SIM._alpha * SIM._v_ms_filt) + ((1.0 - SIM._alpha) * SIM._v_ms);
 
     // accel estimate
@@ -294,7 +247,7 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
     if (a < 0) a = 0;
     a = clampf(a, 0, SIM._accelMax);
 
-    // dyno formula sama konsep firmware:
+    // dyno concept sama firmware:
     // F = m*a
     // tq = F * rWheel
     // P  = F * v
@@ -318,8 +271,6 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
     SIM.hp = hp;
 
     SIM.speed_kmh = SIM._v_ms_filt * 3.6;
-
-    // rpm dummy
     SIM.rpm = speedToRpm(SIM._v_ms_filt);
 
     if (SIM.hp > SIM.maxHP) SIM.maxHP = SIM.hp;
@@ -327,33 +278,32 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
 
     SIM._v_ms_prev = SIM._v_ms_filt;
 
-    // AUTO STOP ketika dist >= target
+    // AUTO STOP by target
     const target = Math.max(1, Math.round(SIM.cfg_targetM || 200));
     if (SIM.dist_m >= target){
       SIM.running = false;
       SIM.armed = false;
       SIM.gate_wait = false;
       SIM.statusText = "AUTO STOP";
-      // biarkan nilai terakhir tampil
     } else {
       SIM.statusText = "RUNNING";
     }
   }
 
   function simSnapshot(){
-    // tick on each call (UI polling -> update)
+    // update each call
     simTick();
 
     const tsMs = Date.now();
     const tsUs = (SIM._simUs >>> 0);
 
-    const s = {
+    return {
       ts_ms: tsMs,
       ts_us: tsUs,
 
       front_total: SIM.front_total,
 
-      rpm: Number(SIM.rpm.toFixed(1)),
+      rpm: Number((SIM.rpm || 0).toFixed(1)),
       rpm_valid: 1,
 
       armed: !!SIM.armed,
@@ -365,7 +315,7 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
       dist_m: Number((SIM.dist_m || 0).toFixed(3)),
       speed_kmh: Number((SIM.speed_kmh || 0).toFixed(3)),
 
-      // alias untuk web lama
+      // alias web lama
       t: Number((SIM.t_s || 0).toFixed(3)),
       distM: Number((SIM.dist_m || 0).toFixed(3)),
       speedKmh: Number((SIM.speed_kmh || 0).toFixed(3)),
@@ -387,16 +337,13 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
 
       statusText: String(SIM.statusText || "READY")
     };
-
-    return s;
   }
 
   // =========================================================
-  // KONEKSI
+  // PUBLIC API for dyno-road.js
   // =========================================================
   window.DYNO_getConn_DUAL = async function(){
     if (SIM_ON){
-      // "connected" always true in sim
       return {
         connected:true,
         online:true,
@@ -424,27 +371,21 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
     }
   };
 
-  // =========================================================
-  // SNAPSHOT
-  // =========================================================
   window.DYNO_getSnapshot_DUAL = async function(){
     if (SIM_ON) return simSnapshot();
     return await fetchJson("/snapshot", 800);
   };
 
-  // =========================================================
-  // CONFIG
   // cfg: {targetM, circM, pprFront, weightKg}
-  // =========================================================
   window.DYNO_setConfig_DUAL = async function(cfg){
     cfg = cfg || {};
+
     const targetM  = Number(cfg.targetM ?? 200);
     const circM    = Number(cfg.circM ?? 1.85);
     const pprFront = Number(cfg.pprFront ?? 1);
     const weightKg = Number(cfg.weightKg ?? 120);
 
     if (SIM_ON){
-      // apply config in sim
       if (isFinite(targetM))  SIM.cfg_targetM  = Math.max(10, Math.min(5000, Math.round(targetM)));
       if (isFinite(circM))    SIM.cfg_circM    = Math.max(0.2, Math.min(10.0, circM));
       if (isFinite(pprFront)) SIM.cfg_pprFront = Math.max(1, Math.min(2000, Math.round(pprFront)));
@@ -472,9 +413,6 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
     return await fetchJson("/config" + qs, 1000);
   };
 
-  // =========================================================
-  // RUN / ARM / STOP / RESET
-  // =========================================================
   window.DYNO_run_DUAL = async function(){
     if (SIM_ON){
       simStartRun();
@@ -485,7 +423,6 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
 
   window.DYNO_arm_DUAL = async function(){
     if (SIM_ON){
-      // firmware arm alias run
       simStartRun();
       return { ok:1, armed:1, note:"ARM_ALIAS_RUN", sim:1, simx:SIM_X };
     }
@@ -511,10 +448,10 @@ console.log("✅ esp-api-dual.js dimuat (FRONT ONLY API + FAST SIM)");
     return await fetchJson("/reset", 1000);
   };
 
-  // init sim state once
+  // init sim
   if (SIM_ON){
     simResetAll(true);
-    console.log("🧪 SIM ON (sim=1) — speed x" + SIM_X);
+    console.log("🧪 SIM ON (sim=1) — BYPASS GATE, speed x" + SIM_X);
   }
 
 })();
