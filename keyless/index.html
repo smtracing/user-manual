@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HONDA KEYLESS TOOL</title>
+
+<style>
+/* ===== BODY ===== */
+body{
+    margin:0;
+    background:#0e1117;
+    font-family:Arial, sans-serif;
+    color:#e6e6e6;
+}
+
+/* ===== HEADER ===== */
+.header-container {
+    display:flex;
+    justify-content:center;
+    padding:0 15px;
+}
+
+.header{
+    width:100%;
+    max-width:700px;
+    background:#161b22;
+    padding:16px;
+    font-size:18px;
+    font-weight:bold;
+    text-align:center;
+    border-bottom:1px solid #2a2f3a;
+    box-sizing:border-box;
+}
+
+/* ===== CONTAINER ===== */
+.container{
+    padding:15px;
+    max-width:700px;
+    margin:auto;
+}
+
+/* ===== CARD ===== */
+.card{
+    background:#161b22;
+    border:1px solid #2a2f3a;
+    border-radius:8px;
+    padding:15px;
+    margin-bottom:15px;
+}
+
+/* ===== BRAND SELECTOR ===== */
+.brand-bar{
+    display:flex;
+    gap:10px;
+    margin-bottom:10px;
+}
+
+.brand-btn{
+    flex:1;
+    padding:10px;
+    text-align:center;
+    font-weight:bold;
+    border-radius:6px;
+    background:#161b22;
+    color:#aaa;
+    cursor:pointer;
+    border:1px solid #2a2f3a;
+}
+
+.brand-active{
+    background:#1f6feb;
+    color:white;
+}
+
+/* ===== MOTOR ROW ===== */
+.motor-row{
+    display:flex;
+    gap:10px;
+    align-items:flex-end;
+}
+
+.motor-select{
+    flex:2;
+}
+
+.esp-status-box{
+    flex:1;
+}
+
+.esp-status{
+    text-align:center;
+    padding:10px;
+    border-radius:6px;
+    font-weight:bold;
+    font-size:13px;
+}
+
+.offline{
+    background:#30363d;
+    color:#bbb;
+}
+
+.online{
+    background:#1f8b4c;
+    color:white;
+}
+
+/* ===== SELECT ===== */
+select{
+    width:100%;
+    padding:10px;
+    background:#0e1117;
+    color:white;
+    border:1px solid #2a2f3a;
+    border-radius:6px;
+    margin-top:8px;
+}
+
+/* ===== IMAGE ===== */
+.image-box{
+    text-align:center;
+    height:350px; /* kotak lebih tinggi agar gambar besar */
+    display:flex;
+    align-items:center; /* vertikal center */
+    justify-content:center;
+    overflow:hidden; /* supaya gambar tidak keluar kotak */
+}
+
+.image-box img{
+    max-width:95%; /* hampir penuh horizontal */
+    max-height:95%; /* hampir penuh vertikal */
+    border-radius:6px;
+    border:1px solid #2a2f3a;
+    background:#000;
+    object-fit:contain; /* proporsional */
+}
+
+/* ===== BUTTON ===== */
+button{
+    width:100%;
+    padding:12px;
+    margin-top:10px;
+    border:none;
+    border-radius:6px;
+    font-size:15px;
+    cursor:pointer;
+}
+
+.btn-primary{ background:#1f6feb; color:white; }
+.btn-secondary{ background:#30363d; color:white; }
+.btn-danger{ background:#b62324; color:white; }
+
+.btn-primary:hover{ background:#2f81f7; }
+.btn-secondary:hover{ background:#484f58; }
+.btn-danger:hover{ background:#d32f2f; }
+
+/* ===== CHECK BOX ===== */
+.check-box{
+    margin-top:15px;
+    padding:15px;
+    border-radius:6px;
+    background:#0e1117;
+    border:1px solid #2a2f3a;
+    font-size:16px;
+}
+
+/* ===== ID BOX ===== */
+.id-box{
+    margin-top:10px;
+    padding:10px;
+    background:#0e1117;
+    border:1px solid #2a2f3a;
+    border-radius:6px;
+    font-family:monospace;
+}
+
+/* ===== REVISI KHUSUS ID KEY ===== */
+#idKey{
+    display:block;
+    margin-top:8px;
+    width:100%;
+    padding:12px;
+    box-sizing:border-box;
+    background:#161b22;
+    border:1px solid #2a2f3a;
+    border-radius:6px;
+    text-align:center;
+    font-size:18px;       /* ukuran teks diperbesar */
+    font-weight:bold;
+    color:#00ff88;
+}
+
+/* ===== LOG ===== */
+.log{
+    margin-top:10px;
+    height:130px;
+    overflow:auto;
+    background:#000;
+    border-radius:6px;
+    border:1px solid #2a2f3a;
+    padding:10px;
+    font-family:monospace;
+    font-size:12px;
+    color:#00ff88;
+}
+
+/* ===== MODAL ===== */
+.modal{
+    display:none;
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,0.6);
+    align-items:center;
+    justify-content:center;
+}
+
+.modal-content{
+    background:#161b22;
+    padding:20px;
+    border-radius:8px;
+    width:90%;
+    max-width:400px;
+    border:1px solid #2a2f3a;
+}
+
+.modal-buttons{
+    margin-top:15px;
+    display:flex;
+    gap:10px;
+}
+
+.modal-buttons button{
+    width:50%;
+}
+
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header-container">
+    <div class="header" id="brandHeader">
+        HONDA KEYLESS TOOL
+    </div>
+</div>
+
+<div class="container">
+
+    <!-- BRAND SELECTOR -->
+    <div class="brand-bar">
+        <div class="brand-btn brand-active" onclick="selectBrand('HONDA')">HONDA</div>
+        <div class="brand-btn" onclick="selectBrand('YAMAHA')">YAMAHA</div>
+        <div class="brand-btn" onclick="selectBrand('SUZUKI')">SUZUKI</div>
+    </div>
+
+    <!-- MOTOR + STATUS ESP -->
+    <div class="card motor-row">
+
+        <div class="motor-select">
+            <label>Pilih Tipe Motor Honda</label>
+            <select id="motorType" onchange="changeMotor()">
+                <option value="">-- Pilih Motor --</option>
+                <option value="ADV160">Honda ADV 160</option>
+                <option value="VARIO160">Honda Vario 160</option>
+                <option value="PCX160">Honda PCX 160</option>
+            </select>
+        </div>
+
+        <div class="esp-status-box">
+            <div id="espStatus" class="esp-status offline">
+                DISCONNECTED
+            </div>
+        </div>
+
+    </div>
+
+    <!-- IMAGE -->
+    <div class="card image-box">
+        <img id="motorImage" src="" alt="Gambar Soket">
+    </div>
+
+    <!-- CHECK ECU -->
+    <div class="card">
+        <button class="btn-primary" onclick="checkECU()">CHECK ECU</button>
+        <div class="check-box" id="checkResult">Waiting Check...</div>
+    </div>
+
+    <!-- ACTION -->
+    <div class="card">
+        <button class="btn-secondary" onclick="readData()">READ ID</button>
+        <button class="btn-danger" onclick="showResetWarning()">RESET ID</button>
+    </div>
+
+    <!-- ID KEY -->
+    <div class="card">
+        <div class="id-box">
+            ID KEY :
+            <span id="idKey">-</span>
+        </div>
+    </div>
+
+    <!-- LOG -->
+    <div class="card">
+        <div class="log" id="log"></div>
+    </div>
+
+</div>
+
+<!-- MODAL RESET -->
+<div class="modal" id="resetModal">
+    <div class="modal-content">
+        <h3>Peringatan Reset ID</h3>
+        <p>
+            Jika ingin melihat ID keyless jangan reset ID.
+            Karena melakukan reset akan mengosongkan ID
+            dan mendaftar otomatis dengan SCU.
+        </p>
+        <div class="modal-buttons">
+            <button class="btn-secondary" onclick="closeResetModal()">Batal</button>
+            <button class="btn-danger" onclick="confirmResetID()">Lanjutkan</button>
+        </div>
+    </div>
+</div>
+
+<script src="js/app.js"></script>
+<script>
+function selectBrand(brand){
+    const header = document.getElementById('brandHeader');
+    const buttons = document.querySelectorAll('.brand-btn');
+    buttons.forEach(btn=>btn.classList.remove('brand-active'));
+
+    if(brand === "HONDA") {
+        header.textContent = "HONDA KEYLESS TOOL";
+        buttons[0].classList.add('brand-active');
+    }
+    if(brand === "YAMAHA") {
+        header.textContent = "YAMAHA KEYLESS TOOL";
+        buttons[1].classList.add('brand-active');
+        window.location.href="yamaha.html";
+    }
+    if(brand === "SUZUKI") {
+        header.textContent = "SUZUKI KEYLESS TOOL";
+        buttons[2].classList.add('brand-active');
+        window.location.href="suzuki.html";
+    }
+}
+</script>
+
+</body>
+</html>
