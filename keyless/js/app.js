@@ -1,16 +1,19 @@
 const ESP_IP = "http://192.168.4.1";
 
-// ===== UI sesuai HTML kamu =====
+// ===== UI sesuai HTML =====
 const espStatusDiv   = document.getElementById("espStatus");
-const ecuStatusSpan  = document.getElementById("checkResult") || document.getElementById("ecuStatus");
+const checkResultDiv = document.getElementById("checkResult");
 const idKeySpan      = document.getElementById("idKey");
 const resetModal     = document.getElementById("resetModal");
 const motorTypeSel   = document.getElementById("motorType");
 const motorImage     = document.getElementById("motorImage");
 const logDiv         = document.getElementById("log");
 
+// ===== tombol (disable saat tidak connected) =====
+let st_connected = false;
+
 // ===============================
-// LOG helper (aman kalau log tidak ada)
+// LOG helper
 // ===============================
 function logLine(msg){
   if(!logDiv) return;
@@ -23,7 +26,37 @@ function logLine(msg){
 }
 
 // ===============================
-// STATUS ESP (hijau/abu-abu)
+// Enable/disable tombol aksi (kecuali pilih motor)
+// ===============================
+function setActionsEnabled(enabled){
+  const btnCheck = document.querySelector('button[onclick="checkECU()"]');
+  const btnRead  = document.querySelector('button[onclick="readData()"]');
+  const btnReset = document.querySelector('button[onclick="showResetWarning()"]');
+
+  const apply = (btn, en) => {
+    if(!btn) return;
+    btn.disabled = !en;
+    btn.style.opacity = en ? "1" : "0.45";
+    btn.style.cursor  = en ? "pointer" : "not-allowed";
+  };
+
+  apply(btnCheck, enabled);
+  apply(btnRead,  enabled);
+  apply(btnReset, enabled);
+
+  if(!enabled && resetModal) resetModal.style.display = "none";
+}
+
+function requireConnected(){
+  if(!st_connected){
+    logLine("❌ ESP belum CONNECTED.");
+    return false;
+  }
+  return true;
+}
+
+// ===============================
+// STATUS ESP (hijau/abu-abu) dari /status
 // ===============================
 function setEspOnline(isOnline){
   if(!espStatusDiv) return;
@@ -39,16 +72,21 @@ function setEspOnline(isOnline){
   }
 }
 
-// ambil status dari firmware: GET /status
 async function pollConn(){
   try{
     const r = await fetch(ESP_IP + "/status", { cache:"no-store" });
     if(!r.ok) throw new Error("HTTP " + r.status);
     const s = await r.json();
     const online = !!(s && (s.online === 1 || s.online === true));
+
+    st_connected = online;
     setEspOnline(online);
+    setActionsEnabled(online);
+
   }catch(e){
+    st_connected = false;
     setEspOnline(false);
+    setActionsEnabled(false);
   }
 }
 
@@ -56,176 +94,208 @@ async function pollConn(){
 // SEND HEX
 // ===============================
 async function sendHex(hex){
-
   try{
     const response = await fetch(ESP_IP + "/send", {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
-      body: hex
+      body: String(hex ?? "")
     });
-
     if(!response.ok) return null;
-
     return await response.text();
-
   }catch(e){
     return null;
   }
 }
 
 // ===============================
-// HEX → TEXT
+// HEX helpers
 // ===============================
 function hexToText(hex){
-
-  hex = (hex || "").replace(/\s/g,'');
-
+  const clean = (hex || "").replace(/[^0-9a-fA-F]/g, "");
   let text = "";
-
-  for(let i=0;i<hex.length;i+=2){
-
-    let byte = parseInt(hex.substr(i,2),16);
-
-    if(byte >= 32 && byte <= 126){
-      text += String.fromCharCode(byte);
-    }
+  for(let i=0;i+1<clean.length;i+=2){
+    const byte = parseInt(clean.substr(i,2),16);
+    if(byte >= 32 && byte <= 126) text += String.fromCharCode(byte);
   }
-
   return text.trim();
 }
 
-// ===============================
-// HEX → DECIMAL
-// ===============================
-function hexToDecimal(hex){
-
-  hex = (hex || "").replace(/\s/g,'');
-
-  if(hex.length === 0) return 0;
-
-  return parseInt(hex,16);
-}
-
-// ===============================
-// CHECK ECU (jalan hanya jika tombol diklik)
-// ===============================
-async function checkECU(){
-
-  logLine("CHECK ECU ...");
-
-  const res = await sendHex(HONDA_HEX.CHECK_ECU);
-
-  if(!res){
-    updateECU(false);
-    logLine("NO RESPONSE");
-    return;
+function hexToBytesAny(hex){
+  const clean = (hex || "").replace(/[^0-9a-fA-F]/g, "");
+  const out = [];
+  for(let i=0;i+1<clean.length;i+=2){
+    out.push(parseInt(clean.substr(i,2),16) & 0xFF);
   }
+  return out;
+}
 
-  const text = hexToText(res);
-  logLine("RX: " + res + (text ? " | TXT: " + text : ""));
-
-  if(text === "ECMID_OK"){
-    updateECU(true);
-  }else{
-    updateECU(false);
+function findLastSubarray(hay, needle){
+  for(let i = hay.length - needle.length; i >= 0; i--){
+    let ok = true;
+    for(let j=0;j<needle.length;j++){
+      if(hay[i+j] !== needle[j]) { ok = false; break; }
+    }
+    if(ok) return i;
   }
+  return -1;
+}
+
+function le32(b0,b1,b2,b3){
+  return (b0 | (b1<<8) | (b2<<16) | (b3<<24)) >>> 0;
+}
+
+function bytesHex4(a,b,c,d){
+  return [a,b,c,d].map(v=>v.toString(16).padStart(2,'0').toUpperCase()).join(" ");
 }
 
 // ===============================
-function updateECU(ok){
-
-  if(!ecuStatusSpan) return;
-
-  if(ok){
-    ecuStatusSpan.innerText = "ECU OK";
-    ecuStatusSpan.style.color = "lime";
-  }else{
-    ecuStatusSpan.innerText = "ECU OFFLINE";
-    ecuStatusSpan.style.color = "red";
-  }
-}
-
-// ===============================
-// READ ID
-// ===============================
-async function readID(){
-
-  logLine("READ ID ...");
-
-  const res = await sendHex(HONDA_HEX.READ_ID);
-
-  if(!res){
-    idKeySpan.innerText = "-";
-    logLine("NO RESPONSE");
-    return;
-  }
-
-  logLine("RX: " + res);
-
-  const number = hexToDecimal(res);
-
-  if(isNaN(number) || number === 0){
-
-    let clean = res.replace(/\s/g,'');
-    let zeroCount = clean.length / 2;
-
-    idKeySpan.innerText = "0".repeat(zeroCount);
-
-  }else{
-    idKeySpan.innerText = String(number);
-  }
-}
-
-// ===============================
-// RESET ID
-// ===============================
-async function resetID(){
-
-  logLine("RESET ID ...");
-
-  await sendHex(HONDA_HEX.RESET_ID);
-
-  setTimeout(()=>{
-    readID();
-  },1000);
-}
-
-// ===============================
-// WRAPPER sesuai UI HTML kamu
-// ===============================
-function readData(){
-  return readID();
-}
-
-function showResetWarning(){
-  if(resetModal) resetModal.style.display = "flex";
-}
-
-function closeResetModal(){
-  if(resetModal) resetModal.style.display = "none";
-}
-
-function confirmResetID(){
-  closeResetModal();
-  return resetID();
-}
-
-// ===============================
-// MOTOR IMAGE (kalau kamu pakai)
+// MOTOR SELECT -> set HEX profile + gambar
+// (TIDAK menampilkan ID_OFFSET di log)
 // ===============================
 function changeMotor(){
   if(!motorTypeSel || !motorImage) return;
 
   const type = motorTypeSel.value;
 
+  if(typeof setHondaMotorProfile === "function"){
+    if(type) setHondaMotorProfile(type);
+  }
+
   if(type === "ADV160") motorImage.src = "assets/adv160.png";
   else if(type === "VARIO160") motorImage.src = "assets/vario160.png";
   else if(type === "PCX160") motorImage.src = "assets/pcx160.png";
   else motorImage.src = "";
+
+  if(type) logLine("Motor: " + type);
 }
 
-// ✅ Saat load: hanya cek koneksi ESP (JANGAN auto checkECU)
+// ===============================
+// CHECK ECU
+// ===============================
+async function checkECU(){
+  if(!requireConnected()) return;
+
+  logLine("CHECK ECU ...");
+
+  const res = await sendHex(HONDA_HEX.CHECK_ECU);
+  if(!res){
+    updateECU(false, "NO RESPONSE");
+    return;
+  }
+
+  const txt = hexToText(res);
+  logLine("RX: " + res + (txt ? " | TXT: " + txt : ""));
+
+  const ok = txt.includes("ECMID_OK") || txt.includes("ECMID");
+  updateECU(ok, ok ? "ECU OK" : "ECU OFFLINE");
+}
+
+function updateECU(ok, msg){
+  if(!checkResultDiv) return;
+  checkResultDiv.innerText = msg || (ok ? "ECU OK" : "ECU OFFLINE");
+  checkResultDiv.style.color = ok ? "lime" : "red";
+}
+
+// ===============================
+// READ ID (dump binary)
+// ===============================
+async function readID(){
+  if(!requireConnected()) return;
+
+  logLine("READ ID ...");
+
+  const res = await sendHex(HONDA_HEX.READ_ID);
+  if(!res){
+    idKeySpan.innerText = "-";
+    logLine("READ ID: NO RESPONSE");
+    return;
+  }
+
+  const bytes = hexToBytesAny(res);
+
+  const BACA_OK = [0x42,0x41,0x43,0x41,0x20,0x4F,0x4B,0x0D,0x0A];
+  const idx = findLastSubarray(bytes, BACA_OK);
+  const dumpStart = (idx >= 0) ? (idx + BACA_OK.length) : 0;
+
+  const OFF = (HONDA_HEX && typeof HONDA_HEX.ID_OFFSET === "number") ? HONDA_HEX.ID_OFFSET : 0x40;
+  const p = dumpStart + OFF;
+
+  if(bytes.length < p + 4){
+    idKeySpan.innerText = "-";
+    logLine("READ ID: DUMP TOO SHORT");
+    return;
+  }
+
+  const b0 = bytes[p+0];
+  const b1 = bytes[p+1];
+  const b2 = bytes[p+2];
+  const b3 = bytes[p+3];
+
+  const id = le32(b0,b1,b2,b3);
+  idKeySpan.innerText = String(id);
+
+  logLine("ID: " + id + " (HEX: " + bytesHex4(b0,b1,b2,b3) + ")");
+}
+
+// ===============================
+// RESET ID
+// ===============================
+async function resetID(){
+  if(!requireConnected()) return;
+
+  logLine("RESET ID ...");
+
+  let res = await sendHex(HONDA_HEX.RESET_ID);
+  if(!res){
+    logLine("RESET: NO RESPONSE");
+    return;
+  }
+
+  let txt = hexToText(res);
+  logLine("RESET RX: " + (txt ? txt : res));
+
+  if(txt.toLowerCase().includes("failed konek")){
+    logLine("RESET: retry ...");
+    res = await sendHex(HONDA_HEX.RESET_ID);
+    if(!res){
+      logLine("RESET RETRY: NO RESPONSE");
+      return;
+    }
+    txt = hexToText(res);
+    logLine("RESET RETRY RX: " + (txt ? txt : res));
+  }
+
+  if(txt.includes("Write Complete!")) logLine("RESET: Write Complete!");
+  else logLine("RESET: belum ada konfirmasi selesai.");
+
+  setTimeout(()=>{ readID(); }, 1000);
+}
+
+// ===============================
+// WRAPPER sesuai HTML
+// ===============================
+function readData(){ return readID(); }
+
+function showResetWarning(){
+  if(!requireConnected()) return;
+  if(resetModal) resetModal.style.display = "flex";
+}
+function closeResetModal(){
+  if(resetModal) resetModal.style.display = "none";
+}
+function confirmResetID(){
+  if(!requireConnected()) return;
+  closeResetModal();
+  return resetID();
+}
+
+// ✅ Saat load: hanya status koneksi ESP. Tidak auto CHECK ECU.
 window.addEventListener("load", ()=>{
+  setActionsEnabled(false);
   pollConn();
   setInterval(pollConn, 800);
+
+  if(motorTypeSel && motorTypeSel.value){
+    changeMotor();
+  }
 });
