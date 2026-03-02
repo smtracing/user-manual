@@ -12,9 +12,12 @@ const logDiv         = document.getElementById("log");
 // ===== state =====
 let st_connected = false;
 
-// ✅ REVISI: strike counter untuk cegah status kedip saat /send sedang proses
+// ✅ strike counter untuk cegah status kedip saat /status timeout sesaat
 let st_miss = 0;
-const MISS_LIMIT = 6;
+const MISS_LIMIT = 3;
+
+// ✅ NEW: tahan status saat request /send sedang diproses (ESP webserver single-thread)
+let st_busy = false;
 
 // ===============================
 // LOG helper
@@ -87,9 +90,8 @@ function setEspOnline(isOnline){
 
 async function pollConn(){
 
-  // timeout cepat biar respon UI cepat, tapi aman karena ada strike counter
   const ctrl = new AbortController();
-  const timer = setTimeout(()=> ctrl.abort(), 900);
+  const timer = setTimeout(()=> ctrl.abort(), 450);
 
   try{
     const r = await fetch(ESP_IP + "/status", { cache:"no-store", signal: ctrl.signal });
@@ -98,17 +100,17 @@ async function pollConn(){
 
     const online = !!(s && (s.online === 1 || s.online === true));
 
-    // ✅ sukses -> reset miss
     st_miss = 0;
-
     st_connected = online;
+
     setEspOnline(online);
     setActionsEnabled(online);
 
   }catch(e){
-    // ✅ gagal -> tambah miss, baru dianggap offline kalau sudah beberapa kali
-    st_miss++;
+    // ✅ REVISI: jika sedang /send, jangan ubah status (biar tidak kedip)
+    if(st_busy) return;
 
+    st_miss++;
     if(st_miss >= MISS_LIMIT){
       st_connected = false;
       setEspOnline(false);
@@ -120,9 +122,10 @@ async function pollConn(){
 }
 
 // ===============================
-// SEND HEX
+// SEND HEX  (REVISI: set st_busy)
 // ===============================
 async function sendHex(hex){
+  st_busy = true;
   try{
     const response = await fetch(ESP_IP + "/send", {
       method: "POST",
@@ -133,6 +136,8 @@ async function sendHex(hex){
     return await response.text();
   }catch(e){
     return null;
+  } finally {
+    st_busy = false;
   }
 }
 
@@ -334,7 +339,7 @@ window.addEventListener("load", ()=>{
   setActionsEnabled(false);
 
   pollConn();
-  setInterval(pollConn, 500); // sebelumnya 800ms
+  setInterval(pollConn, 300);
 
   if(motorTypeSel && motorTypeSel.value){
     changeMotor();
