@@ -12,6 +12,10 @@ const logDiv         = document.getElementById("log");
 // ===== state =====
 let st_connected = false;
 
+// ✅ REVISI: strike counter untuk cegah status kedip saat /send sedang proses
+let st_miss = 0;
+const MISS_LIMIT = 3;
+
 // ===============================
 // LOG helper
 // ===============================
@@ -83,9 +87,9 @@ function setEspOnline(isOnline){
 
 async function pollConn(){
 
-  // ✅ REVISI: tambahkan timeout cepat supaya saat ESP mati status cepat abu-abu
+  // timeout cepat biar respon UI cepat, tapi aman karena ada strike counter
   const ctrl = new AbortController();
-  const timer = setTimeout(()=> ctrl.abort(), 450); // 450ms
+  const timer = setTimeout(()=> ctrl.abort(), 450);
 
   try{
     const r = await fetch(ESP_IP + "/status", { cache:"no-store", signal: ctrl.signal });
@@ -93,15 +97,23 @@ async function pollConn(){
     const s = await r.json();
 
     const online = !!(s && (s.online === 1 || s.online === true));
-    st_connected = online;
 
+    // ✅ sukses -> reset miss
+    st_miss = 0;
+
+    st_connected = online;
     setEspOnline(online);
     setActionsEnabled(online);
 
   }catch(e){
-    st_connected = false;
-    setEspOnline(false);
-    setActionsEnabled(false);
+    // ✅ gagal -> tambah miss, baru dianggap offline kalau sudah beberapa kali
+    st_miss++;
+
+    if(st_miss >= MISS_LIMIT){
+      st_connected = false;
+      setEspOnline(false);
+      setActionsEnabled(false);
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -322,7 +334,7 @@ window.addEventListener("load", ()=>{
   setActionsEnabled(false);
 
   pollConn();
-  setInterval(pollConn, 300); // ✅ REVISI: polling lebih cepat (sebelumnya 800ms)
+  setInterval(pollConn, 300); // sebelumnya 800ms
 
   if(motorTypeSel && motorTypeSel.value){
     changeMotor();
