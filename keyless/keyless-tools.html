@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+revisi html nya .<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
@@ -319,15 +319,6 @@ button{
 <!-- ✅ WAJIB: HONDA_HEX harus diload sebelum app.js -->
 <script src="js/honda_hex.js"></script>
 <script src="js/app.js"></script>
-
-<!-- ✅ Service Worker (taruh sw.js di folder keyless/, sejajar dengan keyless-tools.html) -->
-<script>
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(console.error);
-  });
-}
-</script>
 
 <script>
 function selectBrand(brand){
