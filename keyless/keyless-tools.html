@@ -120,20 +120,20 @@ select{
 /* ===== IMAGE ===== */
 .image-box{
     text-align:center;
-    height:350px; /* kotak lebih tinggi agar gambar besar */
+    height:350px;
     display:flex;
-    align-items:center; /* vertikal center */
+    align-items:center;
     justify-content:center;
-    overflow:hidden; /* supaya gambar tidak keluar kotak */
+    overflow:hidden;
 }
 
 .image-box img{
-    max-width:95%; /* hampir penuh horizontal */
-    max-height:95%; /* hampir penuh vertikal */
+    max-width:95%;
+    max-height:95%;
     border-radius:6px;
     border:1px solid #2a2f3a;
     background:#000;
-    object-fit:contain; /* proporsional */
+    object-fit:contain;
 }
 
 /* ===== BUTTON ===== */
@@ -186,7 +186,7 @@ button{
     border:1px solid #2a2f3a;
     border-radius:6px;
     text-align:center;
-    font-size:18px;       /* ukuran teks diperbesar */
+    font-size:18px;
     font-weight:bold;
     color:#00ff88;
 }
@@ -236,12 +236,10 @@ button{
 .modal-buttons button{
     width:50%;
 }
-
 </style>
 </head>
 <body>
 
-<!-- HEADER -->
 <div class="header-container">
     <div class="header" id="brandHeader">
         HONDA KEYLESS TOOL
@@ -250,14 +248,12 @@ button{
 
 <div class="container">
 
-    <!-- BRAND SELECTOR -->
     <div class="brand-bar">
         <div class="brand-btn brand-active" onclick="selectBrand('HONDA')">HONDA</div>
         <div class="brand-btn" onclick="selectBrand('YAMAHA')">YAMAHA</div>
         <div class="brand-btn" onclick="selectBrand('SUZUKI')">SUZUKI</div>
     </div>
 
-    <!-- MOTOR + STATUS ESP -->
     <div class="card motor-row">
 
         <div class="motor-select">
@@ -278,24 +274,20 @@ button{
 
     </div>
 
-    <!-- IMAGE -->
     <div class="card image-box">
         <img id="motorImage" src="" alt="Gambar Soket">
     </div>
 
-    <!-- CHECK ECU -->
     <div class="card">
         <button class="btn-primary" onclick="checkECU()">CHECK ECU</button>
         <div class="check-box" id="checkResult">Waiting Check...</div>
     </div>
 
-    <!-- ACTION -->
     <div class="card">
         <button class="btn-secondary" onclick="readData()">READ ID</button>
         <button class="btn-danger" onclick="showResetWarning()">RESET ID</button>
     </div>
 
-    <!-- ID KEY -->
     <div class="card">
         <div class="id-box">
             ID KEY :
@@ -303,14 +295,12 @@ button{
         </div>
     </div>
 
-    <!-- LOG -->
     <div class="card">
         <div class="log" id="log"></div>
     </div>
 
 </div>
 
-<!-- MODAL RESET -->
 <div class="modal" id="resetModal">
     <div class="modal-content">
         <h3>Peringatan Reset ID</h3>
@@ -326,7 +316,10 @@ button{
     </div>
 </div>
 
+<!-- ✅ WAJIB: HONDA_HEX harus diload sebelum app.js -->
+<script src="js/honda_hex.js"></script>
 <script src="js/app.js"></script>
+
 <script>
 function selectBrand(brand){
     const header = document.getElementById('brandHeader');
