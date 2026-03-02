@@ -1,6 +1,5 @@
-// honda_hex.js — HEX per tipe motor (mudah dikembangkan)
+// honda_hex.js — HEX per tipe motor + offset split untuk ID (LO/H I)
 
-// Helper: ASCII -> HEX
 function asciiToHex(str){
   let out = "";
   for(let i=0;i<str.length;i++){
@@ -9,16 +8,15 @@ function asciiToHex(str){
   return out.toUpperCase();
 }
 
-// ===== Database HEX per motor =====
-// Default saat ini sama (protokol sama) — nanti tinggal bedakan per motor.
 const HONDA_HEX_DB = {
   ADV160: {
     name: "Honda ADV 160",
     CHECK_ECU: asciiToHex("MINTA_ID_ECM\n"),
     READ_ID:   asciiToHex("SMARTKEYSDGN\n"),
     RESET_ID:  asciiToHex("RESETidecmSDGN\n"),
-    // offset ID di dump (kalau beda tiap motor, taruh di sini)
-    ID_OFFSET: 0x40
+    // ID split: 2 byte di 0x40, 2 byte di 0x50
+    ID_OFFSET_LO: 0x40,
+    ID_OFFSET_HI: 0x50
   },
 
   VARIO160: {
@@ -26,7 +24,8 @@ const HONDA_HEX_DB = {
     CHECK_ECU: asciiToHex("MINTA_ID_ECM\n"),
     READ_ID:   asciiToHex("SMARTKEYSDGN\n"),
     RESET_ID:  asciiToHex("RESETidecmSDGN\n"),
-    ID_OFFSET: 0x40
+    ID_OFFSET_LO: 0x40,
+    ID_OFFSET_HI: 0x50
   },
 
   PCX160: {
@@ -34,15 +33,14 @@ const HONDA_HEX_DB = {
     CHECK_ECU: asciiToHex("MINTA_ID_ECM\n"),
     READ_ID:   asciiToHex("SMARTKEYSDGN\n"),
     RESET_ID:  asciiToHex("RESETidecmSDGN\n"),
-    ID_OFFSET: 0x40
+    ID_OFFSET_LO: 0x40,
+    ID_OFFSET_HI: 0x50
   }
 };
 
-// ===== Active profile (diisi dari pilihan dropdown) =====
-let HONDA_HEX_ACTIVE_KEY = "VARIO160"; // default (bebas)
+let HONDA_HEX_ACTIVE_KEY = "VARIO160";
 let HONDA_HEX = HONDA_HEX_DB[HONDA_HEX_ACTIVE_KEY];
 
-// dipanggil saat user ganti motor
 function setHondaMotorProfile(motorKey){
   if(HONDA_HEX_DB[motorKey]){
     HONDA_HEX_ACTIVE_KEY = motorKey;
@@ -52,7 +50,6 @@ function setHondaMotorProfile(motorKey){
   return false;
 }
 
-// optional: ambil info aktif
 function getHondaMotorProfile(){
   return { key: HONDA_HEX_ACTIVE_KEY, ...(HONDA_HEX || {}) };
 }
