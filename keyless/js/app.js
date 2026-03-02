@@ -9,7 +9,7 @@ const motorTypeSel   = document.getElementById("motorType");
 const motorImage     = document.getElementById("motorImage");
 const logDiv         = document.getElementById("log");
 
-// ===== tombol (disable saat tidak connected) =====
+// ===== state =====
 let st_connected = false;
 
 // ===============================
@@ -26,7 +26,7 @@ function logLine(msg){
 }
 
 // ===============================
-// Enable/disable tombol aksi (kecuali pilih motor)
+// Enable/disable tombol aksi
 // ===============================
 function setActionsEnabled(enabled){
   const btnCheck = document.querySelector('button[onclick="checkECU()"]');
@@ -56,7 +56,7 @@ function requireConnected(){
 }
 
 // ===============================
-// STATUS ESP (hijau/abu-abu) dari /status
+// STATUS ESP
 // ===============================
 function setEspOnline(isOnline){
   if(!espStatusDiv) return;
@@ -77,9 +77,10 @@ async function pollConn(){
     const r = await fetch(ESP_IP + "/status", { cache:"no-store" });
     if(!r.ok) throw new Error("HTTP " + r.status);
     const s = await r.json();
-    const online = !!(s && (s.online === 1 || s.online === true));
 
+    const online = !!(s && (s.online === 1 || s.online === true));
     st_connected = online;
+
     setEspOnline(online);
     setActionsEnabled(online);
 
@@ -149,8 +150,7 @@ function bytesHex4(a,b,c,d){
 }
 
 // ===============================
-// MOTOR SELECT -> set HEX profile + gambar
-// (TIDAK menampilkan ID_OFFSET di log)
+// MOTOR SELECT -> set profile + gambar
 // ===============================
 function changeMotor(){
   if(!motorTypeSel || !motorImage) return;
@@ -197,7 +197,9 @@ function updateECU(ok, msg){
 }
 
 // ===============================
-// READ ID (dump binary)
+// READ ID (valid dump only) + split offsets
+// - Wajib ada marker "BACA OK\r\n"
+// - ID: 2 byte di OFF_LO dan 2 byte di OFF_HI (split)
 // ===============================
 async function readID(){
   if(!requireConnected()) return;
@@ -213,27 +215,37 @@ async function readID(){
 
   const bytes = hexToBytesAny(res);
 
+  // marker "BACA OK\r\n"
   const BACA_OK = [0x42,0x41,0x43,0x41,0x20,0x4F,0x4B,0x0D,0x0A];
   const idx = findLastSubarray(bytes, BACA_OK);
-  const dumpStart = (idx >= 0) ? (idx + BACA_OK.length) : 0;
+  if(idx < 0){
+    idKeySpan.innerText = "-";
+    logLine("READ ID: NO VALID DUMP (BACA OK not found)");
+    return;
+  }
 
-  const OFF = (HONDA_HEX && typeof HONDA_HEX.ID_OFFSET === "number") ? HONDA_HEX.ID_OFFSET : 0x40;
-  const p = dumpStart + OFF;
+  const dumpStart = idx + BACA_OK.length;
 
-  if(bytes.length < p + 4){
+  const OFF_LO = (HONDA_HEX && typeof HONDA_HEX.ID_OFFSET_LO === "number") ? HONDA_HEX.ID_OFFSET_LO : 0x40;
+  const OFF_HI = (HONDA_HEX && typeof HONDA_HEX.ID_OFFSET_HI === "number") ? HONDA_HEX.ID_OFFSET_HI : 0x50;
+
+  const pLo = dumpStart + OFF_LO;
+  const pHi = dumpStart + OFF_HI;
+
+  if(bytes.length < pLo + 2 || bytes.length < pHi + 2){
     idKeySpan.innerText = "-";
     logLine("READ ID: DUMP TOO SHORT");
     return;
   }
 
-  const b0 = bytes[p+0];
-  const b1 = bytes[p+1];
-  const b2 = bytes[p+2];
-  const b3 = bytes[p+3];
+  const b0 = bytes[pLo + 0];
+  const b1 = bytes[pLo + 1];
+  const b2 = bytes[pHi + 0];
+  const b3 = bytes[pHi + 1];
 
   const id = le32(b0,b1,b2,b3);
-  idKeySpan.innerText = String(id);
 
+  idKeySpan.innerText = String(id);
   logLine("ID: " + id + " (HEX: " + bytesHex4(b0,b1,b2,b3) + ")");
 }
 
@@ -289,9 +301,12 @@ function confirmResetID(){
   return resetID();
 }
 
-// ✅ Saat load: hanya status koneksi ESP. Tidak auto CHECK ECU.
+// ===============================
+// INIT
+// ===============================
 window.addEventListener("load", ()=>{
   setActionsEnabled(false);
+
   pollConn();
   setInterval(pollConn, 800);
 
