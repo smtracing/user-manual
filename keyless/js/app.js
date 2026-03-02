@@ -56,6 +56,15 @@ function requireConnected(){
 }
 
 // ===============================
+// RESPONSE CHECK (firmware bisa balas "NO RESPONSE")
+// ===============================
+function isNoResponse(res){
+  if(res == null) return true;
+  const s = String(res).trim().toUpperCase();
+  return (s.length === 0 || s === "NO RESPONSE" || s === "NO DATA" || s === "NODATA");
+}
+
+// ===============================
 // STATUS ESP
 // ===============================
 function setEspOnline(isOnline){
@@ -178,8 +187,9 @@ async function checkECU(){
   logLine("CHECK ECU ...");
 
   const res = await sendHex(HONDA_HEX.CHECK_ECU);
-  if(!res){
+  if(isNoResponse(res)){
     updateECU(false, "NO RESPONSE");
+    logLine("CHECK ECU: NO RESPONSE");
     return;
   }
 
@@ -207,7 +217,7 @@ async function readID(){
   logLine("READ ID ...");
 
   const res = await sendHex(HONDA_HEX.READ_ID);
-  if(!res){
+  if(isNoResponse(res)){
     idKeySpan.innerText = "-";
     logLine("READ ID: NO RESPONSE");
     return;
@@ -258,7 +268,7 @@ async function resetID(){
   logLine("RESET ID ...");
 
   let res = await sendHex(HONDA_HEX.RESET_ID);
-  if(!res){
+  if(isNoResponse(res)){
     logLine("RESET: NO RESPONSE");
     return;
   }
@@ -269,7 +279,7 @@ async function resetID(){
   if(txt.toLowerCase().includes("failed konek")){
     logLine("RESET: retry ...");
     res = await sendHex(HONDA_HEX.RESET_ID);
-    if(!res){
+    if(isNoResponse(res)){
       logLine("RESET RETRY: NO RESPONSE");
       return;
     }
