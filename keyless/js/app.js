@@ -12,11 +12,11 @@ const logDiv         = document.getElementById("log");
 // ===== state =====
 let st_connected = false;
 
-// ✅ strike counter untuk cegah status kedip saat /status timeout sesaat
+// strike counter untuk cegah status kedip saat /status timeout sesaat
 let st_miss = 0;
 const MISS_LIMIT = 3;
 
-// ✅ NEW: tahan status saat request /send sedang diproses (ESP webserver single-thread)
+// ✅ state busy: true saat /send sedang diproses
 let st_busy = false;
 
 // ===============================
@@ -90,6 +90,9 @@ function setEspOnline(isOnline){
 
 async function pollConn(){
 
+  // ✅ REVISI: PAUSE polling saat /send sedang berjalan (biar tidak kedip)
+  if(st_busy) return;
+
   const ctrl = new AbortController();
   const timer = setTimeout(()=> ctrl.abort(), 450);
 
@@ -107,9 +110,6 @@ async function pollConn(){
     setActionsEnabled(online);
 
   }catch(e){
-    // ✅ REVISI: jika sedang /send, jangan ubah status (biar tidak kedip)
-    if(st_busy) return;
-
     st_miss++;
     if(st_miss >= MISS_LIMIT){
       st_connected = false;
@@ -122,7 +122,7 @@ async function pollConn(){
 }
 
 // ===============================
-// SEND HEX  (REVISI: set st_busy)
+// SEND HEX  (REVISI: set st_busy + refresh status setelah selesai)
 // ===============================
 async function sendHex(hex){
   st_busy = true;
@@ -138,6 +138,8 @@ async function sendHex(hex){
     return null;
   } finally {
     st_busy = false;
+    // ✅ refresh status sekali setelah /send selesai
+    pollConn();
   }
 }
 
