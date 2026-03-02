@@ -14,7 +14,7 @@ let st_connected = false;
 
 // ✅ REVISI: strike counter untuk cegah status kedip saat /send sedang proses
 let st_miss = 0;
-const MISS_LIMIT = 3;
+const MISS_LIMIT = 6;
 
 // ===============================
 // LOG helper
@@ -89,7 +89,7 @@ async function pollConn(){
 
   // timeout cepat biar respon UI cepat, tapi aman karena ada strike counter
   const ctrl = new AbortController();
-  const timer = setTimeout(()=> ctrl.abort(), 450);
+  const timer = setTimeout(()=> ctrl.abort(), 900);
 
   try{
     const r = await fetch(ESP_IP + "/status", { cache:"no-store", signal: ctrl.signal });
@@ -334,7 +334,7 @@ window.addEventListener("load", ()=>{
   setActionsEnabled(false);
 
   pollConn();
-  setInterval(pollConn, 300); // sebelumnya 800ms
+  setInterval(pollConn, 500); // sebelumnya 800ms
 
   if(motorTypeSel && motorTypeSel.value){
     changeMotor();
