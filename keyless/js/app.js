@@ -82,8 +82,13 @@ function setEspOnline(isOnline){
 }
 
 async function pollConn(){
+
+  // ✅ REVISI: tambahkan timeout cepat supaya saat ESP mati status cepat abu-abu
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=> ctrl.abort(), 450); // 450ms
+
   try{
-    const r = await fetch(ESP_IP + "/status", { cache:"no-store" });
+    const r = await fetch(ESP_IP + "/status", { cache:"no-store", signal: ctrl.signal });
     if(!r.ok) throw new Error("HTTP " + r.status);
     const s = await r.json();
 
@@ -97,6 +102,8 @@ async function pollConn(){
     st_connected = false;
     setEspOnline(false);
     setActionsEnabled(false);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -208,8 +215,6 @@ function updateECU(ok, msg){
 
 // ===============================
 // READ ID (valid dump only) + split offsets
-// - Wajib ada marker "BACA OK\r\n"
-// - ID: 2 byte di OFF_LO dan 2 byte di OFF_HI (split)
 // ===============================
 async function readID(){
   if(!requireConnected()) return;
@@ -225,7 +230,6 @@ async function readID(){
 
   const bytes = hexToBytesAny(res);
 
-  // marker "BACA OK\r\n"
   const BACA_OK = [0x42,0x41,0x43,0x41,0x20,0x4F,0x4B,0x0D,0x0A];
   const idx = findLastSubarray(bytes, BACA_OK);
   if(idx < 0){
@@ -318,7 +322,7 @@ window.addEventListener("load", ()=>{
   setActionsEnabled(false);
 
   pollConn();
-  setInterval(pollConn, 800);
+  setInterval(pollConn, 300); // ✅ REVISI: polling lebih cepat (sebelumnya 800ms)
 
   if(motorTypeSel && motorTypeSel.value){
     changeMotor();
