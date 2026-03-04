@@ -33,6 +33,63 @@ function logLine(msg){
 }
 
 // ===============================
+// LOADING UI (progress 0-100% di checkResult)
+// ===============================
+let loadingTimer = null;
+let loadingPct = 0;
+
+function startLoading(title){
+  if(!checkResultDiv) return;
+
+  if(loadingTimer) clearInterval(loadingTimer);
+  loadingPct = 0;
+
+  checkResultDiv.style.color = "#00ff88";
+  checkResultDiv.innerHTML = `
+    <div class="loading-wrap">
+      <div class="loading-title">${title}</div>
+      <div class="progress-rail">
+        <div class="progress-fill" id="progFill"></div>
+      </div>
+      <div class="loading-percent" id="progPct">0%</div>
+    </div>
+  `;
+
+  const fill = document.getElementById("progFill");
+  const pct  = document.getElementById("progPct");
+
+  // naik cepat ke 90%, lalu nunggu selesai
+  loadingTimer = setInterval(()=>{
+    if(loadingPct < 90){
+      loadingPct += (loadingPct < 30) ? 5 : (loadingPct < 60 ? 3 : 1);
+      if(loadingPct > 90) loadingPct = 90;
+      if(fill) fill.style.width = loadingPct + "%";
+      if(pct)  pct.textContent = loadingPct + "%";
+    }
+  }, 120);
+}
+
+function finishLoading(finalText, ok=true){
+  if(!checkResultDiv) return;
+
+  const fill = document.getElementById("progFill");
+  const pct  = document.getElementById("progPct");
+
+  if(fill) fill.style.width = "100%";
+  if(pct)  pct.textContent = "100%";
+
+  if(loadingTimer){
+    clearInterval(loadingTimer);
+    loadingTimer = null;
+  }
+
+  setTimeout(()=>{
+    checkResultDiv.textContent = finalText;
+    checkResultDiv.style.color = ok ? "lime" : "red";
+  }, 200);
+}
+
+// ===============================
 // Enable/disable tombol aksi
 // ===============================
 function setActionsEnabled(enabled){
@@ -90,7 +147,7 @@ function setEspOnline(isOnline){
 
 async function pollConn(){
 
-  // ✅ REVISI: PAUSE polling saat /send sedang berjalan (biar tidak kedip)
+  // ✅ PAUSE polling saat /send sedang berjalan (biar tidak kedip)
   if(st_busy) return;
 
   const ctrl = new AbortController();
@@ -122,7 +179,7 @@ async function pollConn(){
 }
 
 // ===============================
-// SEND HEX  (REVISI: set st_busy + refresh status setelah selesai)
+// SEND HEX  (set st_busy + refresh status setelah selesai)
 // ===============================
 async function sendHex(hex){
   st_busy = true;
@@ -138,8 +195,7 @@ async function sendHex(hex){
     return null;
   } finally {
     st_busy = false;
-    // ✅ refresh status sekali setelah /send selesai
-    pollConn();
+    pollConn(); // refresh status sekali setelah /send selesai
   }
 }
 
@@ -210,12 +266,13 @@ function changeMotor(){
 async function checkECU(){
   if(!requireConnected()) return;
 
+  startLoading("CHECK ECU ...");
   logLine("CHECK ECU ...");
 
   const res = await sendHex(HONDA_HEX.CHECK_ECU);
   if(isNoResponse(res)){
-    updateECU(false, "NO RESPONSE");
     logLine("CHECK ECU: NO RESPONSE");
+    finishLoading("NO RESPONSE", false);
     return;
   }
 
@@ -223,13 +280,7 @@ async function checkECU(){
   logLine("RX: " + res + (txt ? " | TXT: " + txt : ""));
 
   const ok = txt.includes("ECMID_OK") || txt.includes("ECMID");
-  updateECU(ok, ok ? "ECU OK" : "ECU OFFLINE");
-}
-
-function updateECU(ok, msg){
-  if(!checkResultDiv) return;
-  checkResultDiv.innerText = msg || (ok ? "ECU OK" : "ECU OFFLINE");
-  checkResultDiv.style.color = ok ? "lime" : "red";
+  finishLoading(ok ? "ECU OK" : "ECU OFFLINE", ok);
 }
 
 // ===============================
@@ -238,12 +289,14 @@ function updateECU(ok, msg){
 async function readID(){
   if(!requireConnected()) return;
 
+  startLoading("READ ID ...");
   logLine("READ ID ...");
 
   const res = await sendHex(HONDA_HEX.READ_ID);
   if(isNoResponse(res)){
     idKeySpan.innerText = "-";
     logLine("READ ID: NO RESPONSE");
+    finishLoading("NO RESPONSE", false);
     return;
   }
 
@@ -254,6 +307,7 @@ async function readID(){
   if(idx < 0){
     idKeySpan.innerText = "-";
     logLine("READ ID: NO VALID DUMP (BACA OK not found)");
+    finishLoading("NO VALID DUMP", false);
     return;
   }
 
@@ -268,6 +322,7 @@ async function readID(){
   if(bytes.length < pLo + 2 || bytes.length < pHi + 2){
     idKeySpan.innerText = "-";
     logLine("READ ID: DUMP TOO SHORT");
+    finishLoading("DUMP TOO SHORT", false);
     return;
   }
 
@@ -280,6 +335,8 @@ async function readID(){
 
   idKeySpan.innerText = String(id);
   logLine("ID: " + id + " (HEX: " + bytesHex4(b0,b1,b2,b3) + ")");
+
+  finishLoading("READ ID OK", true);
 }
 
 // ===============================
@@ -288,11 +345,13 @@ async function readID(){
 async function resetID(){
   if(!requireConnected()) return;
 
+  startLoading("RESET ID ...");
   logLine("RESET ID ...");
 
   let res = await sendHex(HONDA_HEX.RESET_ID);
   if(isNoResponse(res)){
     logLine("RESET: NO RESPONSE");
+    finishLoading("NO RESPONSE", false);
     return;
   }
 
@@ -304,14 +363,20 @@ async function resetID(){
     res = await sendHex(HONDA_HEX.RESET_ID);
     if(isNoResponse(res)){
       logLine("RESET RETRY: NO RESPONSE");
+      finishLoading("NO RESPONSE", false);
       return;
     }
     txt = hexToText(res);
     logLine("RESET RETRY RX: " + (txt ? txt : res));
   }
 
-  if(txt.includes("Write Complete!")) logLine("RESET: Write Complete!");
-  else logLine("RESET: belum ada konfirmasi selesai.");
+  if(txt.includes("Write Complete!")){
+    logLine("RESET: Write Complete!");
+    finishLoading("Write Complete!", true);
+  }else{
+    logLine("RESET: belum ada konfirmasi selesai.");
+    finishLoading("RESET NOT CONFIRMED", false);
+  }
 
   setTimeout(()=>{ readID(); }, 1000);
 }
