@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>CKP Hall Tester</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="wrap">
+
+    <div class="box">
+      <h2>CKP Hall Tester</h2>
+
+      <div class="row row-3">
+        <div class="col">
+          <label for="channelMode">Mode Channel</label>
+          <select id="channelMode">
+            <option value="3">3 Channel</option>
+            <option value="4" selected>4 Channel</option>
+          </select>
+        </div>
+
+        <div class="col">
+          <label for="rpm">RPM</label>
+          <select id="rpm">
+            <option value="1000">1000</option>
+            <option value="2000">2000</option>
+            <option value="3000">3000</option>
+            <option value="4000">4000</option>
+            <option value="5000" selected>5000</option>
+            <option value="6000">6000</option>
+            <option value="7000">7000</option>
+            <option value="8000">8000</option>
+            <option value="9000">9000</option>
+            <option value="10000">10000</option>
+          </select>
+        </div>
+
+        <div class="col">
+          <label for="testMinutes">Durasi Uji</label>
+          <select id="testMinutes"></select>
+        </div>
+      </div>
+
+      <div class="row row-1 mt10">
+        <div class="col">
+          <button id="btnRun">Jalankan</button>
+        </div>
+      </div>
+
+      <div class="progress-wrap mt10">
+        <div class="progress-head">
+          <span>Status Proses</span>
+          <span id="runStatusText">Siap</span>
+        </div>
+
+        <div class="progress-bar">
+          <div id="progressFill" class="progress-fill"></div>
+        </div>
+
+        <div class="progress-foot">
+          <span id="progressPercent">0%</span>
+          <span id="timeRemain">00:00</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="box">
+      <h3>Volt Aki</h3>
+      <div class="master-volt-box">
+        <div class="card">
+          <div class="small">VOLT AKI</div>
+          <div class="big" id="batteryVolt">-</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="box">
+      <h3>Master Normal</h3>
+
+      <div class="master-volt-box">
+        <div class="card">
+          <div class="small">VOLT TOTAL MASTER</div>
+          <div class="big" id="masterSignalVolt">-</div>
+        </div>
+      </div>
+
+      <div id="masterContainer"></div>
+    </div>
+
+    <div class="box">
+      <h3>Hasil Uji</h3>
+
+      <div class="master-volt-box">
+        <div class="card">
+          <div class="small">VOLT TOTAL UJI</div>
+          <div class="big" id="actualSignalVolt">-</div>
+          <div id="statusSignalVolt">-</div>
+        </div>
+      </div>
+
+      <div id="actualContainer"></div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
